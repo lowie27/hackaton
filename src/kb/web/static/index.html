@@ -103,6 +103,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .notif .m { flex: 1; }
 .howto ol li { margin-bottom: 6px; }
 .hidden { display: none !important; }
+#tip { position: fixed; z-index: 50; max-width: 260px; padding: 6px 9px; border-radius: 6px; font-size: 12px; line-height: 1.35;
+  background: var(--ink); color: var(--bg); pointer-events: none; opacity: 0; transition: opacity .12s; }
+#tip.show { opacity: .92; }
 </style>
 </head>
 <body>
@@ -125,54 +128,54 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   <aside>
     <h3>Search logic</h3>
     <div class="seg" id="modeSeg">
-      <button data-mode="bm25">Keyword</button>
-      <button data-mode="vector">Meaning</button>
-      <button data-mode="hybrid">Hybrid</button>
+      <button data-mode="bm25" data-tip="Finds documents that share words with your question (BM25). Precise, but needs the same words.">Keyword</button>
+      <button data-mode="vector" data-tip="Finds documents with a similar meaning using a multilingual AI model, even in another language.">Meaning</button>
+      <button data-mode="hybrid" data-tip="Combines the keyword and meaning rankings (reciprocal rank fusion).">Hybrid</button>
     </div>
     <div class="hint" id="modeHint" style="margin-top:4px"></div>
 
     <h3>Context ranking</h3>
-    <label class="tog"><input type="checkbox" id="ctxOn" checked>
+    <label class="tog" data-tip="Re-rank results by your country, department and site, and by how trustworthy each document is. Off = pure text relevance."><input type="checkbox" id="ctxOn" checked>
       <span><b>Rank by what applies to me</b><small>Off = pure text relevance</small></span></label>
     <div id="signalList"></div>
 
     <h3>Filters (hard, before ranking)</h3>
-    <label class="tog"><input type="checkbox" id="filtersOn"><span><b>Apply filters</b></span></label>
+    <label class="tog" data-tip="Hard filters: documents that do not match are removed before ranking."><input type="checkbox" id="filtersOn"><span><b>Apply filters</b></span></label>
     <div id="filterBox">
-      <div class="field"><span>Country (keeps documents for all countries)</span><select id="fCountry"></select></div>
-      <div class="field"><span>Department (keeps documents for all departments)</span><select id="fDepartment"></select></div>
-      <div class="field"><span>Source</span><select id="fSource"></select></div>
-      <div class="field"><span>Language</span><select id="fLanguage"></select></div>
-      <div class="field"><span>Tag</span><select id="fTag"></select></div>
-      <div class="field"><span>In force on</span><input type="date" id="fValidOn"></div>
+      <div class="field"><span>Country (keeps documents for all countries)</span><select data-tip="Only documents for this country, plus documents that apply to all countries." id="fCountry"></select></div>
+      <div class="field"><span>Department (keeps documents for all departments)</span><select data-tip="Only documents for this department, plus documents for all departments." id="fDepartment"></select></div>
+      <div class="field"><span>Source</span><select data-tip="Where the document comes from: official policy, wiki, Teams, email." id="fSource"></select></div>
+      <div class="field"><span>Language</span><select data-tip="Language the document is written in." id="fLanguage"></select></div>
+      <div class="field"><span>Tag</span><select data-tip="Only documents with this tag." id="fTag"></select></div>
+      <div class="field"><span>In force on</span><input type="date" id="fValidOn" data-tip="Only documents that are in force on this date (between valid from and valid until)."></div>
     </div>
 
     <h3>Display</h3>
-    <label class="tog"><input type="checkbox" id="showMeta" checked><span><b>Show metadata</b></span></label>
-    <label class="tog"><input type="checkbox" id="showWhy" checked><span><b>Show why it matched</b></span></label>
-    <label class="tog"><input type="checkbox" id="showTrust" checked><span><b>Show trust signals</b></span></label>
-    <div class="field"><span>Results</span><input type="number" id="topK" min="1" max="50" value="8"></div>
+    <label class="tog" data-tip="Show the metadata chips: country, owner, last update, validity, tags, who uploaded it."><input type="checkbox" id="showMeta" checked><span><b>Show metadata</b></span></label>
+    <label class="tog" data-tip="Show which words matched and how similar the meaning is."><input type="checkbox" id="showWhy" checked><span><b>Show why it matched</b></span></label>
+    <label class="tog" data-tip="Show the green reasons to rely on a result and the amber warnings."><input type="checkbox" id="showTrust" checked><span><b>Show trust signals</b></span></label>
+    <div class="field"><span>Results</span><input type="number" id="topK" data-tip="How many results to show." min="1" max="50" value="8"></div>
 
     <div id="adminBox" class="hidden">
       <h3>Admin</h3>
-      <button class="btn danger small" id="resetBtn">Reset demo data</button>
+      <button class="btn danger small" id="resetBtn" data-tip="Delete all uploads and notifications and reload the demo data. Admins only.">Reset demo data</button>
     </div>
   </aside>
 
   <main>
     <div class="tabs" id="tabs">
-      <button data-tab="search" class="on">Search</button>
-      <button data-tab="compare">Compare logics</button>
-      <button data-tab="upload">Upload</button>
-      <button data-tab="docs">What I can see</button>
-      <button data-tab="notes">Notifications <span id="noteBadge" class="badge hidden"></span></button>
-      <button data-tab="how">How it works</button>
+      <button data-tab="search" data-tip="Ask a question and see why each answer can or cannot be trusted." class="on">Search</button>
+      <button data-tab="compare" data-tip="Run the same question under two search setups side by side.">Compare logics</button>
+      <button data-tab="upload" data-tip="Add a document and check it for near-duplicates.">Upload</button>
+      <button data-tab="docs" data-tip="The documents your groups give you access to.">What I can see</button>
+      <button data-tab="notes" data-tip="Duplicate alerts sent to you.">Notifications <span id="noteBadge" class="badge hidden"></span></button>
+      <button data-tab="how" data-tip="The pipeline and the ranking weights on one page.">How it works</button>
     </div>
 
     <section id="tab-search">
       <div class="searchbar">
         <input type="text" id="q" placeholder="Ask something, e.g. double holiday pay" value="double holiday pay">
-        <button class="btn" id="searchBtn">Search</button>
+        <button class="btn" id="searchBtn" data-tip="Search with the settings in the sidebar (or press Enter).">Search</button>
       </div>
       <div class="examples hint">Try:
         <button>double holiday pay</button><button>dubbel vakantiegeld</button><button>vakantiegeld</button>
@@ -184,8 +187,8 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     <section id="tab-compare" class="hidden">
       <div class="searchbar">
         <input type="text" id="cq" value="double holiday pay">
-        <select id="preset" style="max-width:320px"></select>
-        <button class="btn" id="compareBtn">Compare</button>
+        <select id="preset" data-tip="Which two search setups to compare. Column B shows how each result moved compared to A." style="max-width:320px"></select>
+        <button class="btn" id="compareBtn" data-tip="Run both setups. ▲ moved up, ▼ moved down, = same place, new = not found by A.">Compare</button>
       </div>
       <div class="note" id="presetNote"></div>
       <div class="compare">
@@ -212,8 +215,8 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
           <div class="field"><span>Valid until</span><input type="date" id="uUntil"></div>
         </div>
         <div class="field"><span>Share with groups (only groups you belong to)</span><div id="uGroups"></div></div>
-        <label class="tog"><input type="checkbox" id="uDetect" checked><span><b>Check for near-duplicates</b><small>Notifies you, the other uploader and the group managers</small></span></label>
-        <button class="btn" id="uploadBtn">Upload</button>
+        <label class="tog" data-tip="Compare the upload with all documents, including ones you cannot see. Titles you may not read stay hidden."><input type="checkbox" id="uDetect" checked><span><b>Check for near-duplicates</b><small>Notifies you, the other uploader and the group managers</small></span></label>
+        <button class="btn" id="uploadBtn" data-tip="Store the document. Your position and department are taken from your profile.">Upload</button>
         <div id="uploadResult" style="margin-top:12px"></div>
       </div>
     </section>
@@ -268,6 +271,16 @@ const SIGNAL_INFO = {
   owner: "Has an accountable owner",
   uploader: "Uploaded by a group manager",
 };
+const SIGNAL_TIPS = {
+  country: "+30% for your country, −50% for another country.",
+  department: "+20% for your department, −20% for another department.",
+  location: "+10% when it is specific to your office or site.",
+  validity: "−60% when expired, −30% when not yet valid.",
+  freshness: "+20% when updated within a year, −30% when older than 3 years.",
+  source: "+20% for official policy, −10% for Teams, email or chat.",
+  owner: "−10% when nobody is accountable for the document.",
+  uploader: "+10% when uploaded by a manager of the group it is shared with.",
+};
 const PRESETS = {
   context: { name: "Relevance only vs Context-aware", note: "Same search, same documents. Right side re-ranks by what applies to you and what can be trusted.",
     a: { context_ranking: false }, b: { context_ranking: true } },
@@ -297,7 +310,7 @@ async function showLogin() {
   $("appView").classList.add("hidden"); $("whoami").classList.add("hidden"); $("loginView").classList.remove("hidden");
   const users = await api("/api/users");
   $("userList").innerHTML = users.map((u) => `
-    <button class="user" data-email="${esc(u.email)}">
+    <button class="user" data-email="${esc(u.email)}" data-tip="Log in as ${esc(u.name)}. Results depend on this person's country, department and groups.">
       <b>${esc(u.name)}</b>
       <div class="hint">${esc(u.position || (u.is_admin ? "Administrator: sees everything" : ""))}</div>
       <div class="chips">${u.country ? `<span class="chip">${esc(u.country)}</span>` : ""}${u.location ? `<span class="chip">${esc(u.location)}</span>` : ""}${u.department ? `<span class="chip">${esc(u.department)}</span>` : ""}</div>
@@ -310,7 +323,7 @@ async function boot() {
   $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
   $("whoami").classList.remove("hidden");
   $("whoami").innerHTML = `<span><b>${esc(me.name)}</b> <span class="hint">${esc([me.country, me.location, me.department].filter(Boolean).join(" · "))}</span></span>
-    <button class="btn ghost small" id="switchBtn">Switch user</button>`;
+    <button class="btn ghost small" id="switchBtn" data-tip="Log out and pick another demo user.">Switch user</button>`;
   $("switchBtn").onclick = async () => { await api("/api/logout", {}); showLogin(); };
   $("adminBox").classList.toggle("hidden", !me.is_admin);
   mode = me.vector_enabled ? "hybrid" : "bm25";
@@ -330,7 +343,7 @@ function renderMode() {
   $("modeHint").textContent = me.vector_enabled ? "" : "Vector search is off on this server (KB_VECTOR_ENABLED).";
 }
 document.querySelectorAll("#modeSeg button").forEach((b) => b.onclick = () => { mode = b.dataset.mode; renderMode(); runSearch(); });
-$("signalList").innerHTML = Object.entries(SIGNAL_INFO).map(([k, v]) => `<label class="tog"><input type="checkbox" class="sig" value="${k}" checked><span>${esc(v)}<small>${k}</small></span></label>`).join("");
+$("signalList").innerHTML = Object.entries(SIGNAL_INFO).map(([k, v]) => `<label class="tog" data-tip="${esc(SIGNAL_TIPS[k])}"><input type="checkbox" class="sig" value="${k}" checked><span>${esc(v)}<small>${k}</small></span></label>`).join("");
 ["ctxOn", "filtersOn", "showMeta", "showWhy", "showTrust", "topK", "fCountry", "fDepartment", "fSource", "fLanguage", "fTag", "fValidOn"].forEach((id) => $(id).addEventListener("change", () => { if (id === "ctxOn") syncSignals(); runSearch(); }));
 document.addEventListener("change", (e) => { if (e.target.classList.contains("sig")) runSearch(); });
 function syncSignals() { document.querySelectorAll(".sig").forEach((c) => c.disabled = !$("ctxOn").checked); }
@@ -390,6 +403,7 @@ async function runSearch() {
 }
 $("searchBtn").onclick = runSearch;
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+document.querySelectorAll(".examples button").forEach((b) => b.dataset.tip = "Search for this example.");
 document.querySelectorAll(".examples button").forEach((b) => b.onclick = () => { $("q").value = b.textContent; runSearch(); });
 
 // ---------- compare ----------
@@ -459,7 +473,7 @@ async function loadNotes() {
   const unread = notes.filter((n) => !n.read_at).length;
   $("noteBadge").textContent = unread; $("noteBadge").classList.toggle("hidden", !unread);
   $("notes").innerHTML = notes.length ? notes.map((n) => `<div class="panel notif ${n.read_at ? "" : "unread"}"><div class="m">${esc(n.message)}<div class="hint">${esc(n.created_at.slice(0, 16).replace("T", " "))}</div></div>
-    ${n.read_at ? '<span class="hint">read</span>' : `<button class="btn ghost small" data-id="${n.id}">Mark read</button>`}</div>`).join("") : '<div class="note">No notifications.</div>';
+    ${n.read_at ? '<span class="hint">read</span>' : `<button class="btn ghost small" data-id="${n.id}" data-tip="Mark this notification as read.">Mark read</button>`}</div>`).join("") : '<div class="note">No notifications.</div>';
   document.querySelectorAll("#notes button[data-id]").forEach((b) => b.onclick = async () => { await api(`/api/notifications/${b.dataset.id}/read`, {}); loadNotes(); });
 }
 
@@ -494,6 +508,31 @@ $("resetBtn").onclick = async () => {
   try { await api("/api/admin/reset", {}); await api("/api/logout", {}); showLogin(); } catch (e) { alert(e.message); }
   $("resetBtn").disabled = false;
 };
+
+// ---------- hover info: only after the pointer rests 0.5 s on an element ----------
+const tip = document.createElement("div");
+tip.id = "tip";
+document.body.appendChild(tip);
+let tipTarget = null, tipTimer = null, tipShown = false;
+function hideTip() { clearTimeout(tipTimer); tip.classList.remove("show"); tipShown = false; }
+document.addEventListener("mousemove", (e) => {
+  const el = e.target.closest("[data-tip]");
+  if (el !== tipTarget) { tipTarget = el; hideTip(); }
+  if (!el || tipShown) return;
+  clearTimeout(tipTimer);  // the pointer moved: restart the 0.5 s wait
+  tipTimer = setTimeout(() => {
+    tip.textContent = el.dataset.tip;
+    const x = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8);
+    const below = e.clientY + 18 + tip.offsetHeight < window.innerHeight;
+    tip.style.left = `${Math.max(8, x)}px`;
+    tip.style.top = `${below ? e.clientY + 18 : e.clientY - tip.offsetHeight - 10}px`;
+    tip.classList.add("show");
+    tipShown = true;
+  }, 500);
+});
+const resetTip = () => { tipTarget = null; hideTip(); };
+["mousedown", "keydown", "scroll"].forEach((ev) => document.addEventListener(ev, resetTip, true));
+document.documentElement.addEventListener("mouseleave", resetTip);  // pointer left the window
 
 boot();
 </script>
