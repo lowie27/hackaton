@@ -77,7 +77,7 @@ The login is a demo user picker, not real authentication: the selected user id i
 ### Run the tests
 
 ```bash
-pytest                          # 74 tests; needs the database from step 1
+pytest                          # 84 tests; needs the database from step 1
 ```
 
 ### Options
@@ -146,6 +146,15 @@ kb.notifications(user_id); kb.mark_notification_read(user_id, notification_id)
 The API layer must authenticate the user and pass *their* id. It must never take a user id from the request body. `KnowledgeBase` raises `rbac.PermissionDenied` for forbidden writes.
 
 ## Security notes
+
+What the Aikido AI Code Audit looks for, and how this code handles it (tests in `tests/test_rbac.py`, `tests/test_web_security.py`):
+
+- **Authentication.** Session = user id + expiry, HMAC-SHA256 signed (`KB_SESSION_SECRET`), in an HttpOnly, Secure, SameSite=Strict cookie that expires after 8 hours; forged or expired cookies get 401. Admin accounts can never log in without `KB_ADMIN_PASSWORD` (constant-time compare); unset = no admin login and no reset. The passwordless picker for non-admin demo users is a demo feature behind `KB_DEMO_LOGIN` (set `false` outside a demo; production needs SSO). Login, reset, upload and search are rate limited per client.
+- **Authorization.** Every read runs as the `kb_app` role under PostgreSQL row-level security, so a missing check in our code still cannot leak a document. Writes check `rbac.py` first: share only with your own groups, replace only your own document (or as group manager/admin), reset only as admin with the password.
+- **Business logic.** Trust signals cannot be faked: marking a document as official `policy` or naming an accountable `owner` is limited to managers of a group it is shared with (and admins); the uploader's position, department and manager flag come from their profile, never from the upload. Notifications, duplicate results and disagreements never name documents the recipient cannot read, and the documents page does not reveal how many hidden documents exist.
+- **IDOR.** The acting user always comes from the signed cookie, never from a request body or URL; notifications can only be marked read by their owner (checked in SQL under RLS); upload ids are namespaced per user.
+- **Injection and browser.** SQL uses bound parameters and `psycopg.sql` composition only. Strict Content-Security-Policy (`script-src 'self'`, no inline scripts), `X-Frame-Options: DENY`, `nosniff`, HSTS, `no-referrer`; API responses are `no-store`; all rendered text is escaped. No public OpenAPI docs. Request sizes are bounded.
+- **Deployment.** The container runs as a non-root user with `no-new-privileges` and all capabilities dropped; Postgres and the app bind to localhost; secrets live in `.env` (git-ignored).
 
 - Reads run as the `NOLOGIN` role `kb_app` with RLS. Writes go through the owner connection after explicit checks: you can only share with your own groups, and only the uploader, a group manager or an admin can overwrite a document.
 - `kb.user_id` is a session setting. RLS guards against bugs in our own queries, not against someone who can already run arbitrary SQL.

@@ -3,6 +3,7 @@
 from datetime import date
 
 import pytest
+from psycopg import sql
 
 from conftest import make_world, requires_db
 from kb import rbac
@@ -33,7 +34,8 @@ def search(w, user, query="double holiday pay", top_k=10, **filters):
 
 
 def row(conn, doc_id, *cols):
-    return conn.execute(f"SELECT {', '.join(cols)} FROM kb.documents WHERE id = %s", (doc_id,)).fetchone()
+    query = sql.SQL("SELECT {} FROM kb.documents WHERE id = %s").format(sql.SQL(", ").join(map(sql.Identifier, cols)))
+    return conn.execute(query, (doc_id,)).fetchone()
 
 
 def test_metadata_is_stored_and_normalised(conn):

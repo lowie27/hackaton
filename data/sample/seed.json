@@ -18,7 +18,7 @@
     {"file": "be_holiday_pay_2025.md", "uploader": "anna@example.com", "groups": ["payroll-be"]},
     {"file": "be_holiday_pay_teams_copy.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
     {"file": "be_holiday_pay_nl.md", "uploader": "anna@example.com", "groups": ["payroll-be"]},
-    {"file": "antwerp_payroll_calendar.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
+    {"file": "antwerp_payroll_calendar.md", "uploader": "anna@example.com", "groups": ["payroll-be"]},
     {"file": "hr_leave_principles.md", "uploader": "admin@example.com", "groups": ["all-staff"]},
     {"file": "be_remote_work_allowance.md", "uploader": "eva@example.com", "groups": ["hr-be"]},
     {"file": "be_remote_work_teams_thread.md", "uploader": "bram@example.com", "groups": ["hr-be"]},

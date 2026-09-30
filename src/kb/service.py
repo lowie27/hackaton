@@ -77,6 +77,7 @@ class KnowledgeBase:
         rbac.require_user(self.conn, user_id)
         group_ids = rbac.resolve_groups(self.conn, group_names)
         rbac.check_can_share_with(self.conn, user_id, group_ids)
+        rbac.check_can_claim_authority(self.conn, user_id, group_ids, doc.meta)
         existing = find_document_id(self.conn, doc.external_id)
         if existing is not None:
             rbac.check_can_replace(self.conn, user_id, existing)

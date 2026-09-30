@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
+from psycopg import sql
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
@@ -96,7 +97,7 @@ def ensure_database(main: psycopg.Connection) -> None:
     if not re.fullmatch(r"[a-z_][a-z0-9_]*", name):
         raise ValueError(f"unexpected experts database name: {name!r}")
     if main.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,)).fetchone() is None:
-        main.execute(f"CREATE DATABASE {name}")
+        main.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
 
 
 def init_schema(conn: psycopg.Connection) -> None:

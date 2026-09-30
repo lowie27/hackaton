@@ -12,6 +12,7 @@ from datetime import date, datetime
 from typing import Literal
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import dict_row
 
 from kb.config import Settings
@@ -72,8 +73,8 @@ class SearchFilters:
     tags: Sequence[str] = ()  # document must carry all of them
     valid_on: date | None = None  # drop documents not in force on that date
 
-    def where(self) -> tuple[str, dict]:
-        """SQL condition on alias d (kb.documents). Values are always bound parameters."""
+    def where(self) -> tuple[sql.Composable, dict]:
+        """SQL condition on alias d (kb.documents). Only fixed SQL text; values are always bound parameters."""
         clauses, params = ["true"], {}
         if self.country:
             clauses.append("(d.country IS NULL OR upper(d.country) = %(f_country)s)")
@@ -96,7 +97,7 @@ class SearchFilters:
                 " AND (d.valid_until IS NULL OR d.valid_until >= %(f_valid_on)s)"
             )
             params["f_valid_on"] = self.valid_on
-        return " AND ".join(clauses), params
+        return sql.SQL(" AND ").join(sql.SQL(c) for c in clauses), params
 
     @property
     def active(self) -> bool:
@@ -258,7 +259,7 @@ class Retriever:
         where, params = filters.where()
         # With filters, ask bm25_search for more so filtered-out chunks do not use up the limit.
         return self.conn.execute(
-            f"""
+            sql.SQL("""
             SELECT b.chunk_id, b.score, b.matched_terms
             FROM kb.bm25_search(%(q)s, %(inner)s) b
             JOIN kb.chunks c ON c.id = b.chunk_id
@@ -266,7 +267,7 @@ class Retriever:
             WHERE {where}
             ORDER BY b.score DESC, b.chunk_id
             LIMIT %(limit)s
-            """,
+            """).format(where=where),
             {"q": query, "inner": 5000 if filters.active else limit, "limit": limit, **params},
         ).fetchall()
 
@@ -276,14 +277,14 @@ class Retriever:
         # all of them away; relaxed_order keeps scanning until LIMIT is met.
         self.conn.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
         rows = self.conn.execute(
-            f"""
+            sql.SQL("""
             SELECT c.id, 1 - (c.embedding <=> %(q)s::vector) AS similarity
             FROM kb.chunks c
             JOIN kb.documents d ON d.id = c.doc_id
             WHERE c.embedding IS NOT NULL AND {where}
             ORDER BY c.embedding <=> %(q)s::vector
             LIMIT %(limit)s
-            """,
+            """).format(where=where),
             {"q": query_vec, "limit": limit, **params},
         ).fetchall()
         rows = [(cid, sim) for cid, sim in rows if sim >= self.settings.min_vector_similarity]

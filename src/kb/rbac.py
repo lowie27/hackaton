@@ -96,6 +96,28 @@ def check_can_share_with(conn: psycopg.Connection, user_id: int, group_ids: Sequ
         raise PermissionDenied("you can only share documents with groups you belong to")
 
 
+# Metadata that raises trust in kb.context and links documents to experts.
+AUTHORITY_SOURCES = {"policy"}
+
+
+def check_can_claim_authority(conn: psycopg.Connection, user_id: int, group_ids: Sequence[int], meta: dict) -> None:
+    """Only a manager of a group the document is shared with (or an admin) may mark it as an
+    official policy or name an accountable owner. Otherwise anyone could upload a copy that
+    looks more trustworthy than the real policy."""
+    claims_source = str(meta.get("source") or "").strip().lower() in AUTHORITY_SOURCES
+    claims_owner = bool(str(meta.get("owner") or "").strip())
+    if not (claims_source or claims_owner) or is_admin(conn, user_id):
+        return
+    manages = conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM kb.group_members WHERE user_id = %s AND role = 'manager' AND group_id = ANY(%s))",
+        (user_id, list(set(group_ids))),
+    ).fetchone()[0]
+    if not manages:
+        raise PermissionDenied(
+            "only a manager of a group you share with may mark a document as official policy or set its owner"
+        )
+
+
 def check_can_replace(conn: psycopg.Connection, user_id: int, doc_id: int) -> None:
     """Only the original uploader, a manager of one of its groups, or an admin may overwrite a document."""
     allowed = conn.execute(

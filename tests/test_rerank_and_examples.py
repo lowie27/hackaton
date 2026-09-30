@@ -66,9 +66,10 @@ def test_upload_examples_unique_and_near_duplicate(conn):
     kb = make_kb(conn)
     kb.seed(DATA / "sample" / "seed.json")
     bram = rbac.user_id_by_email(conn, "bram@example.com")
+    eva = rbac.user_id_by_email(conn, "eva@example.com")
     examples = {Path(d.external_id).stem: d for d in load_directory(DATA / "upload_examples")}
     assert set(examples) == {"unique_bike_lease", "similar_remote_work_copy"}
 
-    assert kb.upload(bram, examples["unique_bike_lease"], ["hr-be"]).similar == []
+    assert kb.upload(eva, examples["unique_bike_lease"], ["hr-be"]).similar == []  # an official policy: manager only
     [match] = kb.upload(bram, examples["similar_remote_work_copy"], ["hr-be"]).similar
     assert match.title == "Home-working allowance (Belgium)"

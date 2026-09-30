@@ -2,6 +2,7 @@ import pytest
 
 from conftest import make_world, requires_db
 from kb.db import user_session
+from kb.ingest import Document
 from kb.rbac import PermissionDenied
 
 pytestmark = requires_db
@@ -78,3 +79,17 @@ def test_notifications_are_private(conn):
     assert w.kb.notifications(w.noor) == []
     assert w.kb.mark_notification_read(w.bram, note.id)
     assert w.kb.notifications(w.bram, unread_only=True) == []
+
+
+def test_only_managers_may_mark_a_document_as_official_or_owned(conn):
+    w = make_world(conn)
+    for meta in ({"source": "policy"}, {"owner": "Payroll BE - Legal Desk"}, {"source": " Policy "}):
+        with pytest.raises(PermissionDenied):
+            w.kb.upload(w.bram, Document("fake", "Fake policy", BE_TEXT, meta), ["t-be"])
+    # Informal sources are fine for members; managers and admins may claim authority.
+    w.kb.upload(w.bram, Document("chat", "Chat", BE_TEXT, {"source": "teams"}), ["t-be"])
+    w.kb.upload(w.anna, Document("real", "Real policy", BE_TEXT, {"source": "policy", "owner": "Legal"}), ["t-be"])
+    w.kb.upload(w.admin, Document("adm", "Admin policy", BE_TEXT, {"source": "policy"}), [])
+    # Managing some other group does not count.
+    with pytest.raises(PermissionDenied):
+        w.kb.upload(w.noor, Document("x", "X", BE_TEXT, {"source": "policy"}), [])

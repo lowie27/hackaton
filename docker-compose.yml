@@ -28,10 +28,18 @@ services:
       KB_RERANK_ENABLED: ${KB_WEB_RERANK_ENABLED:-true}
       KB_SESSION_SECRET: ${KB_SESSION_SECRET:-}
       KB_ADMIN_PASSWORD: ${KB_ADMIN_PASSWORD:-}
+      KB_DEMO_LOGIN: ${KB_DEMO_LOGIN:-true}
     ports:
       - "127.0.0.1:${KB_WEB_PORT:-8000}:8000"
     volumes:
       - models:/models
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pgdata:

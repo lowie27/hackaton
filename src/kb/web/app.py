@@ -1,8 +1,13 @@
 """Demo web app: a JSON API over KnowledgeBase plus a single-page UI.
 
-Login is a demo user picker. The chosen user id lives in an HMAC-signed
-cookie, and every endpoint takes the acting user from that cookie only,
-never from the request body.
+Login is a demo user picker (KB_DEMO_LOGIN, on by default). Admin accounts
+also need KB_ADMIN_PASSWORD. The user id and an expiry live in an HMAC-signed,
+HttpOnly, Secure, SameSite=Strict cookie, and every endpoint takes the acting
+user from that cookie only, never from the request body.
+
+Hardening: security headers with a strict Content-Security-Policy (no inline
+scripts), no public OpenAPI docs, bounded request sizes, and per-client rate
+limits on login, reset, upload and search.
 
 Run: uvicorn kb.web.app:app --host 0.0.0.0 --port 8000
 """
@@ -12,13 +17,17 @@ import hmac
 import os
 import re
 import secrets
+import threading
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from kb import experts, rbac
@@ -39,8 +48,24 @@ EXPERTS = DATA / "sample" / "experts.json"
 UPLOAD_EXAMPLES = DATA / "upload_examples"
 COOKIE = "kb_session"
 SECRET = (os.environ.get("KB_SESSION_SECRET") or secrets.token_hex(32)).encode()
-# The demo login has no passwords, so the destructive reset also needs this. Unset = reset disabled.
+# Needed to log in as an admin and to reset the demo. Unset = no admin login, no reset.
 ADMIN_PASSWORD = os.environ.get("KB_ADMIN_PASSWORD", "")
+# Passwordless demo user picker for non-admin users. Turn off outside a demo.
+DEMO_LOGIN = os.environ.get("KB_DEMO_LOGIN", "true").strip().lower() in {"1", "true", "yes", "on"}
+SESSION_SECONDS = 8 * 3600
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
 
 settings = Settings.from_env()
 embedder = None
@@ -68,21 +93,53 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="SD Worx trusted knowledge demo", lifespan=lifespan)
+app = FastAPI(title="SD Worx trusted knowledge demo", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.update(SECURITY_HEADERS)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# --- rate limiting (in memory, per client IP; one process is enough for the demo) ---
+
+_hits: dict[tuple[str, str], deque] = defaultdict(deque)
+_hits_lock = threading.Lock()
+
+
+def rate_limit(bucket: str, limit: int, per_seconds: int):
+    def check(request: Request) -> None:
+        client = request.client.host if request.client else "?"
+        now = time.monotonic()
+        with _hits_lock:
+            q = _hits[(bucket, client)]
+            while q and q[0] < now - per_seconds:
+                q.popleft()
+            if len(q) >= limit:
+                raise HTTPException(429, "too many requests, try again later")
+            q.append(now)
+    return check
 
 
 # --- session -----------------------------------------------------------------
 
 
-def _sign(user_id: int) -> str:
-    sig = hmac.new(SECRET, str(user_id).encode(), hashlib.sha256).hexdigest()
-    return f"{user_id}.{sig}"
+def _sign(user_id: int, expires: int) -> str:
+    payload = f"{user_id}.{expires}"
+    sig = hmac.new(SECRET, payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
 
 
 def current_user(kb_session: str | None = Cookie(default=None)) -> int:
-    if kb_session:
-        uid, _, sig = kb_session.partition(".")
-        if uid.isdigit() and hmac.compare_digest(_sign(int(uid)), kb_session):
+    if kb_session and kb_session.count(".") == 2:
+        uid, expires, _ = kb_session.split(".")
+        if (uid.isdigit() and expires.isdigit() and int(expires) > time.time()
+                and hmac.compare_digest(_sign(int(uid), int(expires)), kb_session)):
             return int(uid)
     raise HTTPException(401, "log in first")
 
@@ -96,46 +153,57 @@ def kb_conn():
 
 
 class Login(BaseModel):
-    email: str
+    email: str = Field(max_length=254)
+    password: str = Field(default="", max_length=200)
+
+
+def _check_admin_password(password: str) -> None:
+    if not ADMIN_PASSWORD:
+        raise HTTPException(403, "admin access is disabled on this server (KB_ADMIN_PASSWORD is not set)")
+    if not hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode()):
+        raise HTTPException(403, "wrong admin password")
 
 
 class ResetRequest(BaseModel):
-    password: str = ""
+    password: str = Field(default="", max_length=200)
+
+
+Short = Field(default=None, max_length=100)
 
 
 class Filters(BaseModel):
-    country: str | None = None
-    department: str | None = None
-    source: str | None = None
-    language: str | None = None
-    tags: list[str] = []
+    country: str | None = Short
+    department: str | None = Short
+    source: str | None = Short
+    language: str | None = Short
+    tags: list[str] = Field(default=[], max_length=20)
     valid_on: date | None = None
 
 
 class SearchRequest(BaseModel):
     query: str = Field(max_length=500)
-    top_k: int = 10
+    top_k: int = Field(default=10, ge=1, le=50)
     mode: Literal["bm25", "vector", "hybrid"] | None = None
     context_ranking: bool = True
     rerank: bool = False
     detect_conflicts: bool = True
     recommend_people: bool = True
-    signals: list[str] = list(SIGNALS)
+    signals: list[str] = Field(default=list(SIGNALS), max_length=len(SIGNALS))
     filters: Filters = Filters()
 
 
 class UploadRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=50_000)
-    groups: list[str] = []
+    groups: list[str] = Field(default=[], max_length=20)
     detect_duplicates: bool = True
-    source: str | None = None
-    owner: str | None = None
-    country: str | None = None
-    department: str | None = None
-    location: str | None = None
-    language: str | None = None
-    tags: list[str] = []
+    source: str | None = Short
+    owner: str | None = Short
+    country: str | None = Short
+    department: str | None = Short
+    location: str | None = Short
+    language: str | None = Short
+    tags: list[str] = Field(default=[], max_length=20)
     updated_at: date | None = None
     valid_from: date | None = None
     valid_until: date | None = None
@@ -149,6 +217,11 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+
 @app.get("/api/users")
 def demo_users(kb: KnowledgeBase = Depends(kb_conn)):
     """The demo login picker. Only public profile fields."""
@@ -160,12 +233,19 @@ def demo_users(kb: KnowledgeBase = Depends(kb_conn)):
 
 
 @app.post("/api/login")
-def login(body: Login, response: Response, kb: KnowledgeBase = Depends(kb_conn)):
+def login(body: Login, response: Response, kb: KnowledgeBase = Depends(kb_conn),
+          _rl: None = Depends(rate_limit("login", 20, 60))):
+    if not DEMO_LOGIN:
+        raise HTTPException(403, "demo login is disabled (KB_DEMO_LOGIN)")
     try:
         uid = rbac.user_id_by_email(kb.conn, body.email)
     except LookupError:
-        raise HTTPException(404, "unknown user")
-    response.set_cookie(COOKIE, _sign(uid), httponly=True, samesite="strict", secure=True)
+        raise HTTPException(401, "unknown user")
+    if rbac.is_admin(kb.conn, uid):
+        _check_admin_password(body.password)  # admins see every document: never passwordless
+    expires = int(time.time()) + SESSION_SECONDS
+    response.set_cookie(COOKIE, _sign(uid, expires), max_age=SESSION_SECONDS, httponly=True, samesite="strict",
+                        secure=True, path="/")
     return {"ok": True}
 
 
@@ -199,7 +279,8 @@ def me(uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn)):
 
 
 @app.post("/api/search")
-def search(req: SearchRequest, uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn)):
+def search(req: SearchRequest, uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn),
+           _rl: None = Depends(rate_limit("search", 120, 60))):
     signals = [s for s in req.signals if s in SIGNALS]
     try:
         hits = kb.search(
@@ -247,7 +328,8 @@ def _slug(text: str) -> str:
 
 
 @app.post("/api/upload")
-def upload(req: UploadRequest, uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn)):
+def upload(req: UploadRequest, uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn),
+           _rl: None = Depends(rate_limit("upload", 20, 60))):
     meta = {k: v for k, v in req.model_dump(exclude={"title", "body", "groups", "detect_duplicates"}).items() if v}
     meta = {k: (v.isoformat() if isinstance(v, date) else v) for k, v in meta.items()}
     doc = Document(f"upload/{uid}/{_slug(req.title)}", req.title, req.body, meta)
@@ -282,14 +364,12 @@ def read_notification(notification_id: int, uid: int = Depends(current_user), kb
 
 
 @app.post("/api/admin/reset")
-def reset(body: ResetRequest, uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn)):
+def reset(body: ResetRequest, uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn),
+          _rl: None = Depends(rate_limit("reset", 5, 600))):
     """Admins only, with the admin password: wipe everything and load the demo data again."""
     if not rbac.is_admin(kb.conn, uid):
         raise HTTPException(403, "admins only")
-    if not ADMIN_PASSWORD:
-        raise HTTPException(403, "reset is disabled on this server (KB_ADMIN_PASSWORD is not set)")
-    if not hmac.compare_digest(body.password.encode(), ADMIN_PASSWORD.encode()):
-        raise HTTPException(403, "wrong admin password")
+    _check_admin_password(body.password)
     with kb.conn.transaction():
         kb.conn.execute("TRUNCATE kb.notifications, kb.similarity_alerts, kb.document_groups, kb.chunks, "
                         "kb.documents, kb.group_members, kb.groups, kb.users RESTART IDENTITY CASCADE")
