@@ -62,7 +62,7 @@ Direction so far: a trusted knowledge layer for SD Worx employees. Each feature 
 
 ## Status
 
-Working and tested (62 tests, `pytest` against Postgres with pgvector):
+Working and tested (74 tests, `pytest` against Postgres with pgvector):
 
 - `python -m kb init | seed | search | notifications | ingest | embed`. `seed` loads demo users (anna, bram, noor, admin at example.com), groups and the synthetic documents in `data/sample/`.
 - Search filters (`SearchFilters`, CLI `--country --department --source --language --tag --valid-on`) run in SQL before top-k and under RLS.

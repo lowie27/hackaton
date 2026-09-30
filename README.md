@@ -7,6 +7,7 @@ Tectonic Hackathon 2026, SD Worx case. The knowledge layer behind a search UI:
 - **Near-duplicate alerts.** Each upload is compared with all existing documents (term overlap, plus embedding similarity when vectors are on). The uploader, the uploader of the other document and the group managers get a notification. *"Detect: conflicting, duplicated, missing or outdated knowledge."*
 - **Context-aware ranking that explains itself.** Documents carry country, site, department, language, tags, a validity period and a snapshot of the uploader's position; users have a profile. Results that apply to the person asking move up, and every hit lists its reasons ("applies to your country (BE)", "official policy document") and warnings ("expired on 2024-12-31", "no accountable owner", "applies to NL, you work in BE"). Hard filters (country, department, source, language, tags, valid on a date) run in SQL before top-k. *"What is current? Which answer should a person trust?"*
 - **Where results disagree.** Facts (percentages, euro amounts, numbers of days/weeks/months/years) are extracted from every result and compared: same kind of fact, sentences about the same thing, same country (or global). When the values differ, the UI shows a box above the results with every value, which document says it, the quoted sentence, and which one to trust: the claim from the most trustworthy source (context signals), not the best text match. A result that contradicts a more trustworthy one loses 40% with the warning "contradicts a more trustworthy source on the amount (EUR 129 vs EUR 150)". Different countries are never compared (BE 92% vs NL 8% is a different context). Rule-based, no language model: every dispute traces back to two quoted sentences. *"Detect: conflicting knowledge. Which answer should a person trust?"*
+- **Ask a person when the documents are not enough.** The whole result list is judged (`src/kb/escalation.py`): no result really answers the question (rerank below 30%), the best result cannot be relied on (expired, stale, no owner), sources disagree without a clear winner, or near-identical copies exist. Then the page recommends people, from an expert directory in a **separate database** (`kb_experts`), ranked the same way as documents (`src/kb/experts.py`): BM25 in SQL on their expertise, meaning, rerank, then context signals with reasons and warnings (same country, department and office, *owns a document in your results*, *owns the most trustworthy version*, out of office, inactive, experience). *"Who has relevant expertise? Connect: find the right expertise when documents are not enough."*
 - **RBAC.** Users see only documents shared with their groups (or uploaded by them). PostgreSQL row-level security enforces this, so hidden documents never reach a result list, not even as a slot in the top-k. Notifications never name a document the recipient cannot read.
 
 ## How to run
@@ -26,7 +27,7 @@ python -m venv .venv
 pip install -r requirements.txt
 
 # 3. Create the schema and load the demo data
-python -m kb init               # tables, search index, row-level security (+ pgvector if enabled)
+python -m kb init               # tables, search index, RLS (+ pgvector), and the kb_experts database
 python -m kb seed               # demo users, groups and documents from data/sample/
 ```
 
@@ -48,6 +49,7 @@ python -m kb search "holiday pay" --as bram@example.com --valid-on 2026-09-30 --
 
 # Duplicate alerts Anna received
 python -m kb notifications --as anna@example.com
+python -m kb experts "can I still order a hybrid company car" --as bram@example.com
 
 python -m kb --help             # all commands
 ```
@@ -75,7 +77,7 @@ The login is a demo user picker, not real authentication: the selected user id i
 ### Run the tests
 
 ```bash
-pytest                          # 62 tests; needs the database from step 1
+pytest                          # 74 tests; needs the database from step 1
 ```
 
 ### Options
@@ -121,6 +123,8 @@ search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + 
 | `src/kb/retriever.py` | hybrid retrieval, RRF, rerank, metadata filters |
 | `src/kb/context.py` | context-aware re-ranking with reasons and warnings |
 | `src/kb/conflicts.py` | finds where results disagree, and which claim to trust |
+| `src/kb/escalation.py` | decides when a person should answer instead of the documents |
+| `src/kb/experts.py`, `sql/experts/` | expert directory in its own database, ranked like documents |
 | `src/kb/alerts.py` | duplicate detection, notifications |
 | `src/kb/rbac.py` | user/group admin and write permission checks |
 

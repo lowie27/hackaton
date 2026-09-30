@@ -9,13 +9,14 @@ import textwrap
 from datetime import date
 from pathlib import Path
 
-from kb import rbac
+from kb import experts, rbac
 from kb.config import Settings
 from kb.db import connect, init_schema
 from kb.retriever import SearchFilters
 from kb.service import KnowledgeBase
 
 DEFAULT_SEED = Path(__file__).resolve().parents[2] / "data" / "sample" / "seed.json"
+DEFAULT_EXPERTS = DEFAULT_SEED.with_name("experts.json")
 
 
 def print_hits(hits) -> None:
@@ -83,6 +84,10 @@ def main() -> None:
     search.add_argument("--valid-on", type=date.fromisoformat, metavar="YYYY-MM-DD",
                         help="only documents in force on that date")
 
+    who = sub.add_parser("experts", help="find people to ask, ranked like documents")
+    who.add_argument("query")
+    who.add_argument("--as", dest="user", required=True, metavar="EMAIL")
+
     notes = sub.add_parser("notifications", help="list a user's notifications")
     notes.add_argument("--as", dest="user", required=True, metavar="EMAIL")
     notes.add_argument("--unread", action="store_true")
@@ -93,7 +98,10 @@ def main() -> None:
     with connect() as conn:
         if args.command == "init":
             init_schema(conn, settings)
-            print(f"schema ready (vector search {'on' if settings.vector_enabled else 'off'})")
+            experts.ensure_database(conn)
+            with experts.connect() as xconn:
+                experts.init_schema(xconn)
+            print(f"schema ready (vector search {'on' if settings.vector_enabled else 'off'}, experts database ready)")
         elif args.command == "user":
             uid = rbac.upsert_user(conn, args.email, args.name, args.admin, country=args.country,
                                    location=args.location, department=args.department, position=args.position)
@@ -112,7 +120,9 @@ def main() -> None:
             kb = KnowledgeBase(conn, settings)
             if args.command == "seed":
                 kb.seed(args.spec)
-                print("seeded")
+                with experts.connect() as xconn:
+                    n = experts.seed(xconn, DEFAULT_EXPERTS, kb.embedder)
+                print(f"seeded (and {n} experts)")
             elif args.command == "embed":
                 print(f"embedded {kb.embed_missing()} chunks")
             elif args.command == "ingest":
@@ -121,6 +131,17 @@ def main() -> None:
                 for result in results:
                     for s in result.similar:
                         print(f"  doc {result.doc_id} is similar to {s.title or 'a document you cannot see'}")
+            elif args.command == "experts":
+                uid = rbac.user_id_by_email(conn, args.user)
+                hits = kb.search(uid, args.query, 5)
+                with experts.connect() as xconn:
+                    people = experts.find_experts(xconn, settings, args.query, kb.retriever._user_context(uid), hits,
+                                                  embedder=kb.embedder, reranker=kb.retriever.reranker)
+                for rank, p in enumerate(people, start=1):
+                    print(f"{rank}. [{p.score:.3f}] {p.name}, {p.position} ({p.country or 'group'}) <{p.email}>")
+                    print(f"   trust: {'; '.join(p.reasons) or '-'}")
+                    if p.warnings:
+                        print(f"   CAREFUL: {'; '.join(p.warnings)}")
             elif args.command == "search":
                 filters = SearchFilters(args.country, args.department, args.source, args.language, args.tag, args.valid_on)
                 print_hits(kb.search(rbac.user_id_by_email(conn, args.user), args.query, args.top_k, args.mode, filters))

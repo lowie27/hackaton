@@ -21,8 +21,9 @@ from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from kb import rbac
+from kb import experts, rbac
 from kb.conflicts import find_disputes
+from kb.escalation import assess_results
 from kb.config import Settings
 from kb.context import SIGNALS
 from kb.db import connect, init_schema, user_session
@@ -34,6 +35,7 @@ from kb.service import KnowledgeBase
 STATIC = Path(__file__).parent / "static"
 DATA = Path(__file__).resolve().parents[3] / "data"
 SEED = DATA / "sample" / "seed.json"
+EXPERTS = DATA / "sample" / "experts.json"
 UPLOAD_EXAMPLES = DATA / "upload_examples"
 COOKIE = "kb_session"
 SECRET = (os.environ.get("KB_SESSION_SECRET") or secrets.token_hex(32)).encode()
@@ -59,6 +61,10 @@ async def lifespan(_app: FastAPI):
             kb.seed(SEED)
         if embedder:
             kb.embed_missing()
+        experts.ensure_database(conn)
+    with experts.connect() as xconn:
+        experts.init_schema(xconn)
+        experts.seed(xconn, EXPERTS, embedder)  # idempotent upsert, fills embeddings
     yield
 
 
@@ -113,6 +119,7 @@ class SearchRequest(BaseModel):
     context_ranking: bool = True
     rerank: bool = False
     detect_conflicts: bool = True
+    recommend_people: bool = True
     signals: list[str] = list(SIGNALS)
     filters: Filters = Filters()
 
@@ -203,7 +210,17 @@ def search(req: SearchRequest, uid: int = Depends(current_user), kb: KnowledgeBa
     except ValueError as e:
         raise HTTPException(400, str(e))
     disputes = find_disputes(hits, req.query) if req.detect_conflicts else []
-    return {"hits": [h.__dict__ for h in hits], "disputes": [d.as_dict() for d in disputes]}
+    escalation = None
+    if req.recommend_people:
+        e = assess_results(hits, disputes)
+        if e.level:
+            with experts.connect() as xconn:
+                people = experts.find_experts(
+                    xconn, settings, req.query, kb.retriever._user_context(uid), hits, disputes,
+                    embedder=embedder, reranker=reranker if req.rerank else None,
+                )
+            escalation = {"level": e.level, "reasons": e.reasons, "experts": [p.__dict__ for p in people]}
+    return {"hits": [h.__dict__ for h in hits], "disputes": [d.as_dict() for d in disputes], "escalation": escalation}
 
 
 @app.get("/api/documents")
@@ -279,4 +296,8 @@ def reset(body: ResetRequest, uid: int = Depends(current_user), kb: KnowledgeBas
     kb.seed(SEED)
     if embedder:
         kb.embed_missing()
+    with experts.connect() as xconn:
+        with xconn.transaction():
+            xconn.execute("TRUNCATE experts.people RESTART IDENTITY")
+        experts.seed(xconn, EXPERTS, embedder)
     return {"ok": True}

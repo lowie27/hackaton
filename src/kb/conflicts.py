@@ -27,7 +27,7 @@ MIN_SHARED = 3
 LEAD = 3
 # With a cross-encoder rerank, its score is an absolute relevance judgement: a dispute
 # also needs a claim from a result it considers relevant to the question.
-MIN_RERANK = 0.25
+MIN_RERANK = 0.4
 # Without rerank scores: the disputed sentences must contain this share of the question's words.
 MIN_QUERY_COVERAGE = 0.5
 

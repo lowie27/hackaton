@@ -87,6 +87,14 @@ textarea { min-height: 140px; resize: vertical; }
 .claim .verdict { font-size: 12.5px; margin-top: 2px; }
 .claim.best .verdict { color: var(--good); }
 .claim:not(.best) .verdict { color: var(--warn); }
+.escalate { padding: 12px 14px; margin-bottom: 12px; border-left: 4px solid var(--accent); }
+.escalate.ask { border-left-color: var(--warn); }
+.escalate h4 { margin: 0 0 4px; font-size: 14px; }
+.escalate > ul { margin: 4px 0 8px; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.person { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.person .who b { font-size: 14px; }
+.person .who a { color: var(--accent); text-decoration: none; font-size: 13px; }
+.person .signals { margin-top: 4px; }
 mark { background: var(--warn-soft); color: inherit; padding: 0 2px; border-radius: 3px; }
 .factor.up { color: var(--good); } .factor.down { color: var(--bad); }
 .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -168,6 +176,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     <label class="tog" data-tip="Show the metadata chips: country, owner, last update, validity, tags, who uploaded it."><input type="checkbox" id="showMeta" checked><span><b>Show metadata</b></span></label>
     <label class="tog" data-tip="Show which words matched and how similar the meaning is."><input type="checkbox" id="showWhy" checked><span><b>Show why it matched</b></span></label>
     <label class="tog" data-tip="Show the green reasons to rely on a result and the amber warnings."><input type="checkbox" id="showTrust" checked><span><b>Show trust signals</b></span></label>
+    <label class="tog" data-tip="When no result really answers the question, the best one has warnings, or the sources disagree, recommend people to ask. People are ranked like documents: expertise match, same country and department, owns a document in your results, available, active."><input type="checkbox" id="recommendPeople" checked><span><b>Recommend a person when unsure</b></span></label>
     <label class="tog" data-tip="Compare the facts in the results (percentages, amounts, numbers of days, weeks, months, years). When documents for the same country state a different value in a sentence about the same thing, show both side by side."><input type="checkbox" id="showConflicts" checked><span><b>Show where results disagree</b></span></label>
     <div class="field"><span>Results</span><input type="number" id="topK" data-tip="How many results to show." min="1" max="50" value="8"></div>
 
@@ -257,6 +266,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
           <li><b>Rerank</b> (optional). A cross-encoder (multilingual jina-reranker-v2) reads the question together with each of the top 20 candidates and re-scores them. More accurate than the first pass, too slow to run on everything, so it only sees the shortlist.</li>
           <li><b>Context ranking.</b> Each result is scored against who you are and how trustworthy it is. Every adjustment is a sentence you can read: green reasons, amber warnings. Switch each signal off in the sidebar to see its effect.</li>
           <li><b>Where results disagree.</b> Facts (percentages, euro amounts, numbers of days, weeks, months, years) are extracted from every result. Facts of the same kind, in sentences about the same thing, for the same country, are compared. Different values are shown side by side with the quoted sentences, the best-ranked source first with its reasons, the others with their warnings. Different countries are never compared: that is a different context, not a contradiction.</li>
+          <li><b>Ask a person.</b> When no result really answers the question, the best result cannot be relied on, or the sources disagree without a clear winner, the page recommends people instead. Experts live in a separate database and are ranked the same way as documents: keyword and meaning match on their expertise, rerank, then context signals (same country and department, owns a document in your results, owns the most trustworthy version, out of office, inactive, experience), each with a reason or warning.</li>
           <li><b>Duplicate detection</b> on upload. Near-copies notify the uploader, the other uploader and group managers, without naming documents they cannot read.</li>
         </ol>
         <h3>Context signals and weights</h3>
@@ -369,7 +379,7 @@ function renderMode() {
 }
 document.querySelectorAll("#modeSeg button").forEach((b) => b.onclick = () => { mode = b.dataset.mode; renderMode(); runSearch(); });
 $("signalList").innerHTML = Object.entries(SIGNAL_INFO).map(([k, v]) => `<label class="tog" data-tip="${esc(SIGNAL_TIPS[k])}"><input type="checkbox" class="sig" value="${k}" checked><span>${esc(v)}<small>${k}</small></span></label>`).join("");
-["rerankOn", "ctxOn", "filtersOn", "showConflicts", "showMeta", "showWhy", "showTrust", "topK", "fCountry", "fDepartment", "fSource", "fLanguage", "fTag", "fValidOn"].forEach((id) => $(id).addEventListener("change", () => { if (id === "ctxOn") syncSignals(); runSearch(); }));
+["rerankOn", "ctxOn", "filtersOn", "showConflicts", "recommendPeople", "showMeta", "showWhy", "showTrust", "topK", "fCountry", "fDepartment", "fSource", "fLanguage", "fTag", "fValidOn"].forEach((id) => $(id).addEventListener("change", () => { if (id === "ctxOn") syncSignals(); runSearch(); }));
 document.addEventListener("change", (e) => { if (e.target.classList.contains("sig")) runSearch(); });
 function syncSignals() { document.querySelectorAll(".sig").forEach((c) => c.disabled = !$("ctxOn").checked); }
 
@@ -386,7 +396,7 @@ function filters() {
 }
 function currentConfig() {
   return { mode, top_k: +$("topK").value || 8, context_ranking: $("ctxOn").checked, rerank: $("rerankOn").checked,
-    detect_conflicts: $("showConflicts").checked,
+    detect_conflicts: $("showConflicts").checked, recommend_people: $("recommendPeople").checked,
     signals: [...document.querySelectorAll(".sig:checked")].map((c) => c.value), filters: filters() };
 }
 
@@ -449,6 +459,23 @@ function disputeBox(d, hits) {
     }).join("")}
   </div>`;
 }
+function escalationBox(e) {
+  if (!e) return "";
+  const ask = e.level === "ask";
+  const people = e.experts.map((p, i) => `<div class="person"><span class="rank">${i + 1}</span><div class="who">
+      <b>${esc(p.name)}</b> <span class="hint">${esc(p.position || "")}${p.country ? " · " + esc(p.country) : " · group-wide"}${p.location ? " · " + esc(p.location) : ""}</span><br>
+      <a href="mailto:${esc(p.email)}">${esc(p.email)}</a> <span class="hint">· speaks ${esc(p.languages.join(", "))}</span>
+      ${$("showWhy").checked ? `<div class="why">Matched: ${p.matched_terms.length ? `<b>expertise</b> (${p.matched_terms.map(esc).join(", ")})` : "owns a document in your results"}${p.rerank_score != null ? ` · <b>rerank</b> ${Math.round(p.rerank_score * 100)}% relevant` : ""}</div>` : ""}
+      <div class="signals">
+        ${p.reasons.length ? `<div class="box good"><div class="t">${p.warnings.length ? "What speaks for them" : "Why this person"}</div><ul>${p.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>` : "<div></div>"}
+        ${p.warnings.length ? `<div class="box warn"><div class="t">Be careful</div><ul>${p.warnings.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>` : ""}
+      </div></div></div>`).join("") || '<div class="hint">No matching person in the expert directory.</div>';
+  return `<div class="panel escalate ${ask ? "ask" : ""}">
+    <h4>${ask ? "🙋 No trustworthy answer in the documents: ask a person" : "🙋 Want to be sure? Ask the owner to confirm"}</h4>
+    <ul>${e.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+    ${people}
+  </div>`;
+}
 let searchSeq = 0;
 async function runSearch() {
   if (!me) return;
@@ -456,9 +483,12 @@ async function runSearch() {
   const q = $("q").value.trim();
   if (!q) { $("results").innerHTML = ""; return; }
   try {
-    const { hits, disputes } = await api("/api/search", { query: q, ...currentConfig() });
+    const { hits, disputes, escalation } = await api("/api/search", { query: q, ...currentConfig() });
     if (seq !== searchSeq) return;
-    $("results").innerHTML = hits.length ? disputes.map((d) => disputeBox(d, hits)).join("") + hits.map(hitCard).join("") : '<div class="note">No results you are allowed to see.</div>';
+    $("results").innerHTML = (escalation && escalation.level === "ask" ? escalationBox(escalation) : "")
+      + (hits.length ? disputes.map((d) => disputeBox(d, hits)).join("") : '<div class="note">No results you are allowed to see.</div>')
+      + (escalation && escalation.level === "confirm" ? escalationBox(escalation) : "")
+      + hits.map(hitCard).join("");
   } catch (e) { $("results").innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
 }
 $("searchBtn").onclick = runSearch;
