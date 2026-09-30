@@ -9,6 +9,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+vector = ["fastembed>=0.4"]
 dev = ["pytest>=8"]
 
 [build-system]

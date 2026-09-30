@@ -107,6 +107,9 @@ LANGUAGE sql STABLE AS $$
     JOIN kb.chunk_terms ct ON ct.term = qt.term
     JOIN kb.term_df df     ON df.term = qt.term
     JOIN kb.chunk_len cl   ON cl.chunk_id = ct.chunk_id
+    -- Row-level security on kb.chunks (004_security.sql) filters here, before
+    -- LIMIT, so hidden chunks never take a slot in the top_k.
+    JOIN kb.chunks c       ON c.id = ct.chunk_id
     CROSS JOIN kb.corpus_stats s
     GROUP BY ct.chunk_id
     ORDER BY score DESC, ct.chunk_id

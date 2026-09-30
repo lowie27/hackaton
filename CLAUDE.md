@@ -52,8 +52,40 @@ Last 45 minutes (from 21:30):
 
 ## Idea
 
-TODO: not decided yet.
+Direction so far: a trusted knowledge layer for SD Worx employees. Each feature maps to a challenge question (p. 5):
+
+- Hybrid search that explains itself. Every hit shows why it matched (BM25 terms and rank, vector similarity and rank) and its owner, country, last update and groups. Answers "What applies in this context?" and "Which answer should a person trust?"
+- Near-duplicate alerts on upload. The uploader, the other document's uploader and the group managers get notified. Covers the "Detect" inspiration area (duplicated, outdated knowledge).
+- Access control. Users only find documents shared with their groups. This is also what the Aikido audit checks (p. 6).
+- TODO: the one "moment of doubt" for the demo is not chosen yet. Candidate: contradiction detection, where same-topic documents give different answers (the sample data has an 85% vs 92% holiday pay case). The current alerts do not catch this: those two docs score about 0.3 word overlap and 0.6 cosine, below the 0.5 and 0.9 thresholds.
+
+## Status
+
+Working and tested (25 tests, `pytest` against Postgres with pgvector):
+
+- `python -m kb init | seed | search | notifications | ingest | embed`. `seed` loads demo users (anna, bram, noor, admin at example.com), groups and the synthetic documents in `data/sample/`.
+- Demo flow: Bram searches and sees only payroll-be documents. A Dutch query from Noor finds the NL document. Bram uploads a Teams copy of the 2025 policy with 93% instead of 92%, and Anna and Bram get notified (89% word overlap, 99% meaning).
+
+Not done:
+
+- No API to dismiss or resolve an alert. Notifications are database rows only (no email or Teams).
+- Text search uses the `english` config only; the multilingual vector model covers other languages.
+- Index views are rebuilt in full on every upload, and duplicate detection scans every document. Fine at demo scale.
+- The first run downloads the embedding model (about 6 minutes on the event network). Run `python -m kb seed` before the live demo.
+
+## Code rules
+
+- Anything done on behalf of a user runs inside `kb.db.user_session`, which switches to the `kb_app` role so row-level security applies. Never query user-facing data on the owner connection.
+- Every write path calls a check in `src/kb/rbac.py` first. User ids come from the API's authentication, never from the request body.
+- Notifications and upload results never name a document the recipient cannot read (`rbac.can_read`).
+- SQL files in `sql/` are idempotent and applied in name order by `python -m kb init`. pgvector lives in `sql/optional/vector.sql` and is only applied when `KB_VECTOR_ENABLED=true`.
+- Tests run in a transaction that is rolled back (`tests/conftest.py`). Vector tests use a hashing embedder, so they need no model download.
 
 ## Stack
 
-TODO: not decided yet.
+- Knowledge layer (this repo, `src/kb`): Python 3.11+, psycopg 3, PostgreSQL 17 with pgvector (`docker-compose.yml`).
+- Search: BM25 computed in SQL (`sql/001_bm25.sql`) and optional pgvector similarity (`KB_VECTOR_ENABLED`), fused with reciprocal rank fusion in Python. Local multilingual embeddings via fastembed.
+- Access control: groups with member/manager roles, enforced by Postgres row-level security (`sql/004_security.sql`). Write paths call checks in `src/kb/rbac.py`.
+- Near-duplicate alerts on upload notify the uploader, the other document's uploader and group managers (`src/kb/alerts.py`).
+- UI: built separately by a teammate on top of `kb.KnowledgeBase` (`src/kb/service.py`).
+- TODO: UI framework and API layer (authentication lives there).

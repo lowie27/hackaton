@@ -1,19 +1,12 @@
-"""Checks kb.bm25_search against a plain-Python BM25 over the same inverted index.
-
-Needs a running database (DATABASE_URL). Everything runs in a transaction that
-is rolled back, so existing data is left alone.
-"""
+"""Checks kb.bm25_search against a plain-Python BM25 over the same inverted index."""
 
 import math
-import os
 
 import pytest
-from dotenv import load_dotenv
 
-from kb.db import connect, init_schema
+from conftest import make_kb, requires_db
 
-load_dotenv()
-pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
+pytestmark = requires_db
 
 DOCS = {
     "holiday-be": "Holiday pay in Belgium is paid in May. Double holiday pay is calculated on gross salary.",
@@ -43,15 +36,8 @@ def python_bm25(conn, query, k1=1.2, b=0.75):
     return scores
 
 
-@pytest.fixture
-def conn():
-    with connect() as c:
-        init_schema(c)
-        yield c
-        c.rollback()
-
-
 def test_sql_matches_python_reference(conn):
+    make_kb(conn)
     for ext_id, body in DOCS.items():
         doc_id = conn.execute(
             "INSERT INTO kb.documents (external_id, title) VALUES (%s, %s) RETURNING id", (f"test/{ext_id}", ext_id)
@@ -61,6 +47,7 @@ def test_sql_matches_python_reference(conn):
 
     query = "double holiday pay Belgium"
     expected = python_bm25(conn, query)
+    # Runs as the owner (no RLS), so it sees every chunk, like the reference.
     rows = conn.execute("SELECT chunk_id, score FROM kb.bm25_search(%s, 1000)", (query,)).fetchall()
 
     assert {cid for cid, _ in rows} == set(expected)
@@ -73,4 +60,5 @@ def test_sql_matches_python_reference(conn):
 
 
 def test_query_with_only_stopwords_returns_nothing(conn):
+    make_kb(conn)
     assert conn.execute("SELECT * FROM kb.bm25_search('the and of')").fetchall() == []

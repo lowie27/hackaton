@@ -1,41 +1,105 @@
-"""CLI: python -m kb {init,ingest,search}."""
+"""Admin/dev CLI: python -m kb <command>.
+
+--as EMAIL picks the acting user. The CLI is a trusted local tool; the real
+app gets the user id from its authentication layer.
+"""
 
 import argparse
 import textwrap
 from pathlib import Path
 
+from kb import rbac
+from kb.config import Settings
 from kb.db import connect, init_schema
-from kb.ingest import ingest_directory
-from kb.retriever import BM25Retriever
+from kb.service import KnowledgeBase
+
+DEFAULT_SEED = Path(__file__).resolve().parents[2] / "data" / "sample" / "seed.json"
+
+
+def print_hits(hits) -> None:
+    if not hits:
+        print("no results")
+    for rank, hit in enumerate(hits, start=1):
+        updated = hit.updated_at.date() if hit.updated_at else "unknown"
+        why = []
+        if hit.bm25_rank:
+            why.append(f"bm25 #{hit.bm25_rank} ({hit.bm25_score:.2f}: {', '.join(hit.matched_terms)})")
+        if hit.vector_rank:
+            why.append(f"vector #{hit.vector_rank} (cos {hit.vector_score:.2f})")
+        print(f"{rank}. [{hit.score:.4f}] {hit.title}  ({hit.external_id}#{hit.chunk_ord})")
+        print(f"   owner={hit.owner or '-'} country={hit.country or 'all'} updated={updated} groups={','.join(hit.groups) or 'private'}")
+        print(f"   why: {'; '.join(why)}")
+        print(textwrap.indent(textwrap.shorten(hit.text, 240), "   "))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="kb")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("init", help="create schema, views and the bm25_search function")
-    ingest = sub.add_parser("ingest", help="load .md/.txt files and rebuild the index")
+
+    sub.add_parser("init", help="create schema, views, RLS policies (and pgvector if enabled)")
+    seed = sub.add_parser("seed", help="load demo users, groups and documents")
+    seed.add_argument("spec", type=Path, nargs="?", default=DEFAULT_SEED)
+    sub.add_parser("embed", help="backfill missing embeddings (after enabling vectors)")
+
+    user = sub.add_parser("user", help="create or update a user")
+    user.add_argument("email")
+    user.add_argument("name")
+    user.add_argument("--admin", action="store_true")
+
+    group = sub.add_parser("group", help="create a group, optionally adding a member")
+    group.add_argument("name")
+    group.add_argument("--member", metavar="EMAIL")
+    group.add_argument("--manager", action="store_true", help="add --member as manager")
+
+    ingest = sub.add_parser("ingest", help="upload .md/.txt files as a user")
     ingest.add_argument("path", type=Path)
-    search = sub.add_parser("search", help="run a BM25 query")
+    ingest.add_argument("--as", dest="user", required=True, metavar="EMAIL")
+    ingest.add_argument("--group", action="append", default=[], help="share with this group (repeatable)")
+
+    search = sub.add_parser("search", help="search as a user")
     search.add_argument("query")
+    search.add_argument("--as", dest="user", required=True, metavar="EMAIL")
     search.add_argument("-k", "--top-k", type=int, default=5)
+    search.add_argument("--mode", choices=["bm25", "vector", "hybrid"])
+
+    notes = sub.add_parser("notifications", help="list a user's notifications")
+    notes.add_argument("--as", dest="user", required=True, metavar="EMAIL")
+    notes.add_argument("--unread", action="store_true")
+
     args = parser.parse_args()
+    settings = Settings.from_env()
 
     with connect() as conn:
         if args.command == "init":
-            init_schema(conn)
-            print("schema ready")
-        elif args.command == "ingest":
-            print(f"ingested {ingest_directory(conn, args.path)} documents")
-        elif args.command == "search":
-            hits = BM25Retriever(conn).search(args.query, args.top_k)
-            if not hits:
-                print("no results")
-            for rank, hit in enumerate(hits, start=1):
-                updated = hit.updated_at.date() if hit.updated_at else "unknown"
-                print(f"{rank}. [{hit.score:.3f}] {hit.title}  ({hit.external_id}#{hit.chunk_ord})")
-                print(f"   owner={hit.owner or '-'} country={hit.country or 'all'} updated={updated}")
-                print(f"   matched: {', '.join(hit.matched_terms)}")
-                print(textwrap.indent(textwrap.shorten(hit.text, 240), "   "))
+            init_schema(conn, settings)
+            print(f"schema ready (vector search {'on' if settings.vector_enabled else 'off'})")
+        elif args.command == "user":
+            print(f"user id {rbac.upsert_user(conn, args.email, args.name, args.admin)}")
+        elif args.command == "group":
+            group_id = rbac.upsert_group(conn, args.name)
+            if args.member:
+                role = "manager" if args.manager else "member"
+                rbac.add_member(conn, group_id, rbac.user_id_by_email(conn, args.member), role)
+            print(f"group id {group_id}")
+        elif args.command == "notifications":
+            for n in KnowledgeBase(conn, settings).notifications(rbac.user_id_by_email(conn, args.user), args.unread):
+                status = "    " if n.read_at else "NEW "
+                print(f"{status}#{n.id} {n.created_at:%Y-%m-%d %H:%M}  {n.message}")
+        else:
+            kb = KnowledgeBase(conn, settings)
+            if args.command == "seed":
+                kb.seed(args.spec)
+                print("seeded")
+            elif args.command == "embed":
+                print(f"embedded {kb.embed_missing()} chunks")
+            elif args.command == "ingest":
+                results = kb.upload_directory(rbac.user_id_by_email(conn, args.user), args.path, args.group)
+                print(f"ingested {len(results)} documents")
+                for result in results:
+                    for s in result.similar:
+                        print(f"  doc {result.doc_id} is similar to {s.title or 'a document you cannot see'}")
+            elif args.command == "search":
+                print_hits(kb.search(rbac.user_id_by_email(conn, args.user), args.query, args.top_k, args.mode))
 
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
-from kb.retriever import BM25Retriever, SearchHit
+from kb.config import Settings
+from kb.retriever import SearchHit
+from kb.service import KnowledgeBase, UploadResult
 
-__all__ = ["BM25Retriever", "SearchHit"]
+__all__ = ["KnowledgeBase", "SearchHit", "Settings", "UploadResult"]

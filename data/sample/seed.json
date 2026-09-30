@@ -1,0 +1,18 @@
+{
+  "users": [
+    {"email": "admin@example.com", "name": "Demo Admin", "admin": true},
+    {"email": "anna@example.com", "name": "Anna (Payroll BE lead)"},
+    {"email": "bram@example.com", "name": "Bram (Payroll BE consultant)"},
+    {"email": "noor@example.com", "name": "Noor (Payroll NL lead)"}
+  ],
+  "groups": {
+    "payroll-be": {"managers": ["anna@example.com"], "members": ["bram@example.com"]},
+    "payroll-nl": {"managers": ["noor@example.com"]}
+  },
+  "documents": [
+    {"file": "be_holiday_pay_2019.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
+    {"file": "nl_holiday_allowance.md", "uploader": "noor@example.com", "groups": ["payroll-nl"]},
+    {"file": "be_holiday_pay_2025.md", "uploader": "anna@example.com", "groups": ["payroll-be"]},
+    {"file": "be_holiday_pay_teams_copy.md", "uploader": "bram@example.com", "groups": ["payroll-be"]}
+  ]
+}
