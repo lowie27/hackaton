@@ -9,6 +9,7 @@
   "groups": {
     "payroll-be": {"managers": ["anna@example.com"], "members": ["bram@example.com"]},
     "payroll-nl": {"managers": ["noor@example.com"]},
+    "hr-be": {"managers": ["eva@example.com"], "members": ["anna@example.com", "bram@example.com"]},
     "all-staff": {"managers": ["admin@example.com"], "members": ["anna@example.com", "bram@example.com", "noor@example.com", "eva@example.com"]}
   },
   "documents": [
@@ -18,6 +19,16 @@
     {"file": "be_holiday_pay_teams_copy.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
     {"file": "be_holiday_pay_nl.md", "uploader": "anna@example.com", "groups": ["payroll-be"]},
     {"file": "antwerp_payroll_calendar.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
-    {"file": "hr_leave_principles.md", "uploader": "admin@example.com", "groups": ["all-staff"]}
+    {"file": "hr_leave_principles.md", "uploader": "admin@example.com", "groups": ["all-staff"]},
+    {"file": "be_remote_work_allowance.md", "uploader": "eva@example.com", "groups": ["hr-be"]},
+    {"file": "be_remote_work_teams_thread.md", "uploader": "bram@example.com", "groups": ["hr-be"]},
+    {"file": "be_company_car_policy.md", "uploader": "eva@example.com", "groups": ["hr-be"]},
+    {"file": "be_meal_vouchers_wiki_2020.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
+    {"file": "be_exit_holiday_pay_email.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
+    {"file": "nl_sick_leave.md", "uploader": "noor@example.com", "groups": ["payroll-nl"]},
+    {"file": "nl_utrecht_payroll_calendar.md", "uploader": "noor@example.com", "groups": ["payroll-nl"]},
+    {"file": "fr_conges_payes.md", "uploader": "admin@example.com", "groups": ["all-staff"]},
+    {"file": "group_payslip_retention.md", "uploader": "admin@example.com", "groups": ["all-staff"]},
+    {"file": "hr_onboarding_checklist.md", "uploader": "admin@example.com", "groups": ["all-staff"]}
   ]
 }

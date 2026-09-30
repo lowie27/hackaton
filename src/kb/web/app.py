@@ -25,28 +25,33 @@ from kb import rbac
 from kb.config import Settings
 from kb.context import SIGNALS
 from kb.db import connect, init_schema, user_session
-from kb.embeddings import FastEmbedEmbedder
-from kb.ingest import Document
+from kb.embeddings import FastEmbedEmbedder, FastEmbedReranker
+from kb.ingest import Document, load_directory
 from kb.retriever import SearchFilters
 from kb.service import KnowledgeBase
 
 STATIC = Path(__file__).parent / "static"
-SEED = Path(__file__).resolve().parents[3] / "data" / "sample" / "seed.json"
+DATA = Path(__file__).resolve().parents[3] / "data"
+SEED = DATA / "sample" / "seed.json"
+UPLOAD_EXAMPLES = DATA / "upload_examples"
 COOKIE = "kb_session"
 SECRET = (os.environ.get("KB_SESSION_SECRET") or secrets.token_hex(32)).encode()
 
 settings = Settings.from_env()
 embedder = None
+reranker = None
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global embedder
+    global embedder, reranker
     if settings.vector_enabled:
         embedder = FastEmbedEmbedder(settings.embedding_model, settings.embedding_dim)
+    if settings.rerank_enabled:
+        reranker = FastEmbedReranker(settings.rerank_model)
     with connect() as conn:
         init_schema(conn, settings)
-        kb = KnowledgeBase(conn, settings, embedder)
+        kb = KnowledgeBase(conn, settings, embedder, reranker)
         if conn.execute("SELECT count(*) FROM kb.users").fetchone()[0] == 0:
             kb.seed(SEED)
         if embedder:
@@ -75,7 +80,7 @@ def current_user(kb_session: str | None = Cookie(default=None)) -> int:
 
 def kb_conn():
     with connect() as conn:
-        yield KnowledgeBase(conn, settings, embedder)
+        yield KnowledgeBase(conn, settings, embedder, reranker)
 
 
 # --- models ------------------------------------------------------------------
@@ -99,6 +104,7 @@ class SearchRequest(BaseModel):
     top_k: int = 10
     mode: Literal["bm25", "vector", "hybrid"] | None = None
     context_ranking: bool = True
+    rerank: bool = False
     signals: list[str] = list(SIGNALS)
     filters: Filters = Filters()
 
@@ -172,6 +178,7 @@ def me(uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn)):
         **dict(zip(keys, row)),
         "groups": [{"name": n, "role": r} for n, r in groups],
         "vector_enabled": settings.vector_enabled,
+        "rerank_enabled": reranker is not None,
         "signals": list(SIGNALS),
     }
 
@@ -182,7 +189,7 @@ def search(req: SearchRequest, uid: int = Depends(current_user), kb: KnowledgeBa
     try:
         hits = kb.search(
             uid, req.query, req.top_k, req.mode, SearchFilters(**req.filters.model_dump()),
-            context_ranking=req.context_ranking, signals=signals,
+            context_ranking=req.context_ranking, signals=signals, rerank=req.rerank,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -224,6 +231,15 @@ def upload(req: UploadRequest, uid: int = Depends(current_user), kb: KnowledgeBa
     except (LookupError, ValueError) as e:
         raise HTTPException(400, str(e))
     return {"doc_id": result.doc_id, "similar": [s.__dict__ for s in result.similar]}
+
+
+@app.get("/api/upload-examples")
+def upload_examples(uid: int = Depends(current_user)):
+    """Two documents that are not in the database: one unique, one near-copy of an existing one."""
+    return [
+        {"file": Path(d.external_id).stem, "title": d.title, "body": d.body.strip(), **d.meta}
+        for d in load_directory(UPLOAD_EXAMPLES)
+    ]
 
 
 @app.get("/api/notifications")

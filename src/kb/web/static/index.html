@@ -56,7 +56,6 @@ textarea { min-height: 140px; resize: vertical; }
 .searchbar { display: flex; gap: 8px; margin-bottom: 12px; }
 .searchbar input { flex: 1; font-size: 15px; padding: 10px 12px; }
 .hint { color: var(--muted); font-size: 13px; }
-.examples button { border: 1px dashed var(--line); background: transparent; border-radius: 999px; padding: 3px 10px; margin: 2px; cursor: pointer; color: var(--muted); }
 .hit { padding: 14px; margin-bottom: 10px; }
 .hit .top { display: flex; gap: 10px; align-items: baseline; }
 .rank { font-weight: 700; color: var(--muted); min-width: 22px; }
@@ -133,6 +132,8 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       <button data-mode="hybrid" data-tip="Combines the keyword and meaning rankings (reciprocal rank fusion).">Hybrid</button>
     </div>
     <div class="hint" id="modeHint" style="margin-top:4px"></div>
+    <label class="tog" data-tip="A second AI model (cross-encoder) reads the question and each of the top 20 candidates together and re-scores them. Slower, but more accurate than word or vector matching alone."><input type="checkbox" id="rerankOn">
+      <span><b>Rerank top 20</b><small>cross-encoder, after keyword/meaning</small></span></label>
 
     <h3>Context ranking</h3>
     <label class="tog" data-tip="Re-rank results by your country, department and site, and by how trustworthy each document is. Off = pure text relevance."><input type="checkbox" id="ctxOn" checked>
@@ -174,19 +175,15 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 
     <section id="tab-search">
       <div class="searchbar">
-        <input type="text" id="q" placeholder="Ask something, e.g. double holiday pay" value="double holiday pay">
+        <input type="text" id="q" placeholder="Ask a question…" autocomplete="off">
         <button class="btn" id="searchBtn" data-tip="Search with the settings in the sidebar (or press Enter).">Search</button>
-      </div>
-      <div class="examples hint">Try:
-        <button>double holiday pay</button><button>dubbel vakantiegeld</button><button>vakantiegeld</button>
-        <button>holiday pay calendar</button><button>who decides when documents disagree</button>
       </div>
       <div id="results" style="margin-top:12px"></div>
     </section>
 
     <section id="tab-compare" class="hidden">
       <div class="searchbar">
-        <input type="text" id="cq" value="double holiday pay">
+        <input type="text" id="cq" placeholder="Ask a question to compare…" autocomplete="off">
         <select id="preset" data-tip="Which two search setups to compare. Column B shows how each result moved compared to A." style="max-width:320px"></select>
         <button class="btn" id="compareBtn" data-tip="Run both setups. ▲ moved up, ▼ moved down, = same place, new = not found by A.">Compare</button>
       </div>
@@ -199,7 +196,11 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 
     <section id="tab-upload" class="hidden">
       <div class="panel" style="padding:14px">
-        <div class="note">Upload a document as the current user. Your position and department are stored from your profile, not from the form. Try pasting the 2025 policy with 93% instead of 92% to trigger a near-duplicate alert.</div>
+        <div class="note">Upload a document as the current user. Your position and department are stored from your profile, not from the form. Fill in an example below, or paste your own text.</div>
+        <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap">
+          <button class="btn ghost small" id="exUnique" data-tip="A bike leasing policy. Nothing like it exists yet, so no duplicate alert.">Example: unique document</button>
+          <button class="btn ghost small" id="exSimilar" data-tip="A Teams copy of the home-working allowance policy with one detail changed (two days instead of one). Triggers a near-duplicate alert. Log in as Bram, Anna or Eva and share with hr-be.">Example: near-duplicate</button>
+        </div>
         <div class="field"><span>Title</span><input type="text" id="uTitle" placeholder="Holiday pay (copied from a Teams chat)"></div>
         <div class="field"><span>Text</span><textarea id="uBody" placeholder="Paste the document text"></textarea></div>
         <div class="formgrid">
@@ -239,6 +240,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
           <li><b>Access control.</b> PostgreSQL row-level security only returns documents shared with your groups. Hidden documents never take a slot in the results. See <i>What I can see</i>.</li>
           <li><b>Filters</b> (optional). Country, department, source, language, tag, in force on a date. Run in SQL before ranking.</li>
           <li><b>Relevance.</b> <i>Keyword</i> = BM25 computed in SQL (shows matched terms). <i>Meaning</i> = multilingual embeddings in pgvector (Dutch queries find English documents). <i>Hybrid</i> fuses both rankings with reciprocal rank fusion.</li>
+          <li><b>Rerank</b> (optional). A cross-encoder (multilingual jina-reranker-v2) reads the question together with each of the top 20 candidates and re-scores them. More accurate than the first pass, too slow to run on everything, so it only sees the shortlist.</li>
           <li><b>Context ranking.</b> Each result is scored against who you are and how trustworthy it is. Every adjustment is a sentence you can read: green reasons, amber warnings. Switch each signal off in the sidebar to see its effect.</li>
           <li><b>Duplicate detection</b> on upload. Near-copies notify the uploader, the other uploader and group managers, without naming documents they cannot read.</li>
         </ol>
@@ -254,7 +256,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
           <tr><td>owner</td><td></td><td>−10% no accountable owner</td></tr>
           <tr><td>uploader</td><td>+10% uploaded by a manager of its group</td><td></td></tr>
         </table>
-        <p class="hint">Final score = relevance × (1 + sum of adjustments), never below 10% of relevance.</p>
+        <p class="hint">Final score = relevance × (1 + sum of adjustments), never below 10% of relevance. With rerank on, relevance is the cross-encoder's score (0 to 100%).</p>
       </div>
     </section>
   </main>
@@ -286,6 +288,8 @@ const PRESETS = {
     a: { context_ranking: false }, b: { context_ranking: true } },
   hybrid: { name: "Keyword (BM25) vs Hybrid", note: "Hybrid adds meaning-based matches: try the Dutch query 'dubbel vakantiegeld'.",
     a: { mode: "bm25" }, b: { mode: "hybrid" } },
+  rerank: { name: "Without vs with rerank", note: "Same search logic; right side lets the cross-encoder re-score the top 20. Context ranking is off on both sides so you see the rerank alone.",
+    a: { rerank: false, context_ranking: false }, b: { rerank: true, context_ranking: false } },
   vector: { name: "Keyword vs Meaning", note: "Keyword needs shared words. Meaning finds paraphrases and other languages.",
     a: { mode: "bm25" }, b: { mode: "vector" } },
   filters: { name: "No filters vs Sidebar filters", note: "Right side applies the filters set in the sidebar (tick 'Apply filters').",
@@ -341,10 +345,12 @@ function renderMode() {
     b.disabled = b.dataset.mode !== "bm25" && !me.vector_enabled;
   });
   $("modeHint").textContent = me.vector_enabled ? "" : "Vector search is off on this server (KB_VECTOR_ENABLED).";
+  $("rerankOn").disabled = !me.rerank_enabled;
+  if (!me.rerank_enabled) $("rerankOn").checked = false;
 }
 document.querySelectorAll("#modeSeg button").forEach((b) => b.onclick = () => { mode = b.dataset.mode; renderMode(); runSearch(); });
 $("signalList").innerHTML = Object.entries(SIGNAL_INFO).map(([k, v]) => `<label class="tog" data-tip="${esc(SIGNAL_TIPS[k])}"><input type="checkbox" class="sig" value="${k}" checked><span>${esc(v)}<small>${k}</small></span></label>`).join("");
-["ctxOn", "filtersOn", "showMeta", "showWhy", "showTrust", "topK", "fCountry", "fDepartment", "fSource", "fLanguage", "fTag", "fValidOn"].forEach((id) => $(id).addEventListener("change", () => { if (id === "ctxOn") syncSignals(); runSearch(); }));
+["rerankOn", "ctxOn", "filtersOn", "showMeta", "showWhy", "showTrust", "topK", "fCountry", "fDepartment", "fSource", "fLanguage", "fTag", "fValidOn"].forEach((id) => $(id).addEventListener("change", () => { if (id === "ctxOn") syncSignals(); runSearch(); }));
 document.addEventListener("change", (e) => { if (e.target.classList.contains("sig")) runSearch(); });
 function syncSignals() { document.querySelectorAll(".sig").forEach((c) => c.disabled = !$("ctxOn").checked); }
 
@@ -360,7 +366,7 @@ function filters() {
     language: $("fLanguage").value || null, tags: $("fTag").value ? [$("fTag").value] : [], valid_on: $("fValidOn").value || null };
 }
 function currentConfig() {
-  return { mode, top_k: +$("topK").value || 8, context_ranking: $("ctxOn").checked,
+  return { mode, top_k: +$("topK").value || 8, context_ranking: $("ctxOn").checked, rerank: $("rerankOn").checked,
     signals: [...document.querySelectorAll(".sig:checked")].map((c) => c.value), filters: filters() };
 }
 
@@ -372,6 +378,7 @@ function hitCard(h, i) {
   const why = [];
   if (h.bm25_rank) why.push(`<b>keyword #${h.bm25_rank}</b> (BM25 ${h.bm25_score.toFixed(2)}: ${h.matched_terms.map(esc).join(", ")})`);
   if (h.vector_rank) why.push(`<b>meaning #${h.vector_rank}</b> (cosine ${h.vector_score.toFixed(2)})`);
+  if (h.rerank_rank) why.push(`<b>rerank #${h.rerank_rank}</b> (cross-encoder ${Math.round(h.rerank_score * 100)}% relevant)`);
   const meta = [
     ["country", h.country || "all"], ["site", h.location], ["dept", h.department], ["source", h.source], ["owner", h.owner || "none"],
     ["updated", h.updated_at ? h.updated_at.slice(0, 10) : "unknown"], ["valid", (h.valid_from || h.valid_until) ? `${h.valid_from || "…"} → ${h.valid_until || "…"}` : null],
@@ -403,8 +410,6 @@ async function runSearch() {
 }
 $("searchBtn").onclick = runSearch;
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
-document.querySelectorAll(".examples button").forEach((b) => b.dataset.tip = "Search for this example.");
-document.querySelectorAll(".examples button").forEach((b) => b.onclick = () => { $("q").value = b.textContent; runSearch(); });
 
 // ---------- compare ----------
 $("preset").innerHTML = Object.entries(PRESETS).map(([k, p]) => `<option value="${k}">${esc(p.name)}</option>`).join("");
@@ -418,11 +423,12 @@ function configFor(over) {
   if (over.filters === true) cfg.filters = base.filters;
   if (over.signals) cfg.context_ranking = true;
   if ((cfg.mode === "vector" || cfg.mode === "hybrid") && !me.vector_enabled) cfg.mode = "bm25";
+  if (!me.rerank_enabled) cfg.rerank = false;
   return cfg;
 }
 function describe(cfg) {
   const names = { bm25: "Keyword", vector: "Meaning", hybrid: "Hybrid" };
-  return `${names[cfg.mode]} · ${cfg.context_ranking ? "context on" : "relevance only"}${Object.values(cfg.filters).some((v) => v && v.length !== 0) ? " · filtered" : ""}`;
+  return `${names[cfg.mode]}${cfg.rerank ? " + rerank" : ""} · ${cfg.context_ranking ? "context on" : "relevance only"}${Object.values(cfg.filters).some((v) => v && v.length !== 0) ? " · filtered" : ""}`;
 }
 function compareRows(hits, other) {
   const pos = new Map(other.map((h, i) => [h.chunk_id, i]));
@@ -493,6 +499,20 @@ $("uploadBtn").onclick = async () => {
     await loadDocs(); loadNotes(); runSearch();
   } catch (e) { $("uploadResult").innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
 };
+
+let uploadExamples = null;
+async function fillExample(prefix) {
+  uploadExamples = uploadExamples || await api("/api/upload-examples");
+  const ex = uploadExamples.find((e) => e.file.startsWith(prefix));
+  if (!ex) return;
+  const set = (id, v) => { $(id).value = v || ""; };
+  set("uTitle", ex.title); set("uBody", ex.body); set("uSource", ex.source); set("uOwner", ex.owner); set("uCountry", ex.country);
+  set("uDepartment", ex.department); set("uLocation", ex.location); set("uLanguage", ex.language); set("uTags", ex.tags);
+  set("uUpdated", ex.updated_at); set("uFrom", ex.valid_from); set("uUntil", ex.valid_until);
+  $("uploadResult").innerHTML = "";
+}
+$("exUnique").onclick = () => fillExample("unique");
+$("exSimilar").onclick = () => fillExample("similar");
 
 // ---------- tabs & admin ----------
 document.querySelectorAll("#tabs button").forEach((b) => b.onclick = () => {

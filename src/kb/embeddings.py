@@ -28,6 +28,24 @@ class FastEmbedEmbedder:
         return next(iter(self._model.query_embed(text))).tolist()
 
 
+class Reranker(Protocol):
+    def score(self, query: str, texts: Sequence[str]) -> list[float]: ...
+
+
+class FastEmbedReranker:
+    """Cross-encoder: reads query and passage together, so it judges the actual
+    answer instead of comparing two separately computed vectors. Too slow for the
+    whole corpus, fine for the top candidates."""
+
+    def __init__(self, model_name: str):
+        from fastembed.rerank.cross_encoder import TextCrossEncoder  # optional dependency
+
+        self._model = TextCrossEncoder(model_name)
+
+    def score(self, query: str, texts: Sequence[str]) -> list[float]:
+        return [float(x) for x in self._model.rerank(query, list(texts))]
+
+
 def to_pgvector(vec: Sequence[float]) -> str:
     """pgvector text literal, used with a ::vector cast (no adapter package needed)."""
     return "[" + ",".join(f"{float(x):.7g}" for x in vec) + "]"

@@ -62,7 +62,7 @@ Direction so far: a trusted knowledge layer for SD Worx employees. Each feature 
 
 ## Status
 
-Working and tested (47 tests, `pytest` against Postgres with pgvector):
+Working and tested (51 tests, `pytest` against Postgres with pgvector):
 
 - `python -m kb init | seed | search | notifications | ingest | embed`. `seed` loads demo users (anna, bram, noor, admin at example.com), groups and the synthetic documents in `data/sample/`.
 - Search filters (`SearchFilters`, CLI `--country --department --source --language --tag --valid-on`) run in SQL before top-k and under RLS.
@@ -89,7 +89,7 @@ Not done:
 ## Stack
 
 - Knowledge layer (this repo, `src/kb`): Python 3.11+, psycopg 3, PostgreSQL 17 with pgvector (`docker-compose.yml`).
-- Search: BM25 computed in SQL (`sql/001_bm25.sql`) and optional pgvector similarity (`KB_VECTOR_ENABLED`), fused with reciprocal rank fusion in Python. Local multilingual embeddings via fastembed.
+- Search: BM25 computed in SQL (`sql/001_bm25.sql`) and optional pgvector similarity (`KB_VECTOR_ENABLED`), fused with reciprocal rank fusion in Python, optionally reranked by a multilingual cross-encoder (`KB_RERANK_ENABLED`). Local multilingual embeddings via fastembed.
 - Access control: groups with member/manager roles, enforced by Postgres row-level security (`sql/004_security.sql`). Write paths call checks in `src/kb/rbac.py`.
 - Near-duplicate alerts on upload notify the uploader, the other document's uploader and group managers (`src/kb/alerts.py`).
 - UI: built separately by a teammate on top of `kb.KnowledgeBase` (`src/kb/service.py`).

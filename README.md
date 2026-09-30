@@ -3,6 +3,7 @@
 Tectonic Hackathon 2026, SD Worx case. The knowledge layer behind a search UI:
 
 - **Hybrid search.** BM25 is computed inside PostgreSQL, pgvector adds semantic matches, and Python fuses both rankings with reciprocal rank fusion. Vectors can be switched off with one setting. Every hit shows *why* it matched (BM25 rank and terms, vector rank and cosine) plus its owner, country, last update and groups. *"What applies in this context?"*
+- **Rerank for accuracy.** After fusion, a cross-encoder (`jinaai/jina-reranker-v2-base-multilingual`, local via fastembed) reads the question together with each of the top 20 candidates and re-scores them. The first pass is fast but judges words or vectors separately; the cross-encoder judges whether the passage actually answers the question. It only sees the shortlist (after RLS), so it adds accuracy without scanning the corpus. Each hit shows its rerank rank and score.
 - **Near-duplicate alerts.** Each upload is compared with all existing documents (term overlap, plus embedding similarity when vectors are on). The uploader, the uploader of the other document and the group managers get a notification. *"Detect: conflicting, duplicated, missing or outdated knowledge."*
 - **Context-aware ranking that explains itself.** Documents carry country, site, department, language, tags, a validity period and a snapshot of the uploader's position; users have a profile. Results that apply to the person asking move up, and every hit lists its reasons ("applies to your country (BE)", "official policy document") and warnings ("expired on 2024-12-31", "no accountable owner", "applies to NL, you work in BE"). Hard filters (country, department, source, language, tags, valid on a date) run in SQL before top-k. *"What is current? Which answer should a person trust?"*
 - **RBAC.** Users see only documents shared with their groups (or uploaded by them). PostgreSQL row-level security enforces this, so hidden documents never reach a result list, not even as a slot in the top-k. Notifications never name a document the recipient cannot read.
@@ -61,9 +62,9 @@ docker compose up -d --build   # database + web UI on http://localhost:8000
 Pick a demo user, then:
 
 - **Search**: results with *why it matched* (keyword terms, meaning similarity), metadata, and green *why you can rely on it* / amber *be careful* signals.
-- **Sidebar**: switch the search logic (Keyword / Meaning / Hybrid), context ranking on/off, each context signal on/off, hard filters, and what is displayed (metadata, match reasons, trust signals).
+- **Sidebar**: switch the search logic (Keyword / Meaning / Hybrid), the cross-encoder rerank, context ranking on/off, each context signal on/off, hard filters, and what is displayed (metadata, match reasons, trust signals).
 - **Compare logics**: the same query side by side under two configurations (keyword vs hybrid, relevance only vs context-aware, ...) with rank changes marked.
-- **Upload**: add a document with metadata, duplicate check on/off. **What I can see**: the documents RBAC lets you read. **Notifications**: duplicate alerts.
+- **Upload**: add a document with metadata, duplicate check on/off. Two example documents that are not in the database (`data/upload_examples/`) fill the form: a unique one (bike leasing) and a near-copy of the home-working allowance policy that triggers a duplicate alert. **What I can see**: the documents RBAC lets you read. **Notifications**: duplicate alerts.
 - Admins get a *Reset demo data* button.
 
 The first start downloads the embedding model (about 200 MB, cached in a volume). Set `KB_WEB_VECTOR_ENABLED=false` in `.env` for keyword-only. Behind a reverse proxy on an external `edge` network: `docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d`.
@@ -73,12 +74,14 @@ The login is a demo user picker, not real authentication: the selected user id i
 ### Run the tests
 
 ```bash
-pytest                          # 46 tests; needs the database from step 1
+pytest                          # 51 tests; needs the database from step 1
 ```
 
 ### Options
 
 `requirements.txt` includes `fastembed` for vector search. For BM25 only (smaller install, no model download) use `pip install -e .` instead and keep `KB_VECTOR_ENABLED=false`.
+
+**Rerank.** Set `KB_RERANK_ENABLED=true` (needs the `vector` extra; the model is about 1.1 GB and downloads on first use). `KB_RERANK_MODEL` picks another fastembed cross-encoder, for example `Xenova/ms-marco-MiniLM-L-6-v2` (80 MB, English only). `KB_RERANK_CANDIDATES` (default 20) sets how many fused results are re-scored. From code: `kb.search(user_id, q, rerank=True/False)` overrides it per request. The web UI turns it on by default (`KB_WEB_RERANK_ENABLED`) and has a *Rerank top 20* switch and a *Without vs with rerank* comparison.
 
 Toggle vectors with `KB_VECTOR_ENABLED=true|false` in `.env`. After turning them on for existing data, run `python -m kb init` and then `python -m kb embed`. The default model (`paraphrase-multilingual-MiniLM-L12-v2`, runs locally via fastembed) is multilingual, so Dutch and French queries match English documents.
 
@@ -98,7 +101,9 @@ upload ─► KnowledgeBase.upload (permission checks) ─► kb.documents / kb.
 search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + kb.user_id
                                    ├─ kb.bm25_search(q)          (SQL, RLS-filtered)
                                    └─ chunks ORDER BY embedding <=> q  (pgvector, RLS-filtered)
-                                   ─► RRF in Python ─► SearchHit list
+                                   ─► RRF in Python
+                                   ─► cross-encoder rerank of the top 20 (optional)
+                                   ─► context ranking (kb.context) ─► SearchHit list
 ```
 
 | File | What |
@@ -111,7 +116,7 @@ search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + 
 | `src/kb/service.py` | **`KnowledgeBase`: the API for the UI** |
 | `src/kb/web/` | FastAPI JSON API + single-page demo UI |
 | `sql/005_metadata.sql` | user profiles and document context metadata |
-| `src/kb/retriever.py` | hybrid retrieval, RRF, metadata filters |
+| `src/kb/retriever.py` | hybrid retrieval, RRF, rerank, metadata filters |
 | `src/kb/context.py` | context-aware re-ranking with reasons and warnings |
 | `src/kb/alerts.py` | duplicate detection, notifications |
 | `src/kb/rbac.py` | user/group admin and write permission checks |

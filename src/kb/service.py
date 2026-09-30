@@ -16,7 +16,7 @@ from kb.alerts import Notification, SimilarDocument, detect_and_notify, list_not
 from kb.config import Settings
 from kb.context import SIGNALS
 from kb.db import refresh_index
-from kb.embeddings import Embedder, FastEmbedEmbedder, to_pgvector
+from kb.embeddings import Embedder, FastEmbedEmbedder, FastEmbedReranker, Reranker, to_pgvector
 from kb.ingest import Document, chunk_text, find_document_id, load_directory, load_file, update_document_embeddings, write_document
 from kb.retriever import Retriever, SearchFilters, SearchHit, SearchMode
 
@@ -28,13 +28,21 @@ class UploadResult:
 
 
 class KnowledgeBase:
-    def __init__(self, conn: psycopg.Connection, settings: Settings | None = None, embedder: Embedder | None = None):
+    def __init__(
+        self,
+        conn: psycopg.Connection,
+        settings: Settings | None = None,
+        embedder: Embedder | None = None,
+        reranker: Reranker | None = None,
+    ):
         self.conn = conn
         self.settings = settings or Settings.from_env()
         if self.settings.vector_enabled and embedder is None:
             embedder = FastEmbedEmbedder(self.settings.embedding_model, self.settings.embedding_dim)
         self.embedder = embedder if self.settings.vector_enabled else None
-        self.retriever = Retriever(conn, self.settings, self.embedder)
+        if self.settings.rerank_enabled and reranker is None:
+            reranker = FastEmbedReranker(self.settings.rerank_model)
+        self.retriever = Retriever(conn, self.settings, self.embedder, reranker)
 
     def search(
         self,
@@ -45,9 +53,10 @@ class KnowledgeBase:
         filters: SearchFilters | None = None,
         context_ranking: bool | None = None,
         signals: Collection[str] = SIGNALS,
+        rerank: bool | None = None,
     ) -> list[SearchHit]:
         return self.retriever.search(
-            user_id, query, top_k, mode, filters, context_ranking=context_ranking, signals=signals
+            user_id, query, top_k, mode, filters, context_ranking=context_ranking, signals=signals, rerank=rerank
         )
 
     def upload(

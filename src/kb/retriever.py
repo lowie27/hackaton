@@ -1,10 +1,12 @@
-"""Hybrid retrieval: BM25 (in Postgres) + pgvector, fused with reciprocal rank fusion.
+"""Hybrid retrieval: BM25 (in Postgres) + pgvector, fused with reciprocal rank fusion,
+optionally reranked by a cross-encoder, then re-ranked by context (kb.context).
 
 All queries run inside user_session, so row-level security limits results to
 documents the user may read.
 """
 
-from collections.abc import Sequence
+import math
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Literal
@@ -13,11 +15,9 @@ import psycopg
 from psycopg.rows import dict_row
 
 from kb.config import Settings
-from collections.abc import Collection
-
 from kb.context import SIGNALS, UserContext, assess
 from kb.db import user_session
-from kb.embeddings import Embedder, to_pgvector
+from kb.embeddings import Embedder, Reranker, to_pgvector
 
 SearchMode = Literal["bm25", "vector", "hybrid"]
 
@@ -50,6 +50,8 @@ class SearchHit:
     uploader_position: str | None = None
     uploader_department: str | None = None
     uploader_is_manager: bool = False
+    rerank_score: float | None = None  # cross-encoder relevance, 0..1
+    rerank_rank: int | None = None
     relevance: float | None = None  # score before context ranking
     reasons: list[str] = field(default_factory=list)  # why it applies / can be trusted
     warnings: list[str] = field(default_factory=list)  # why to be careful
@@ -106,12 +108,19 @@ def reciprocal_rank_fusion(rankings: Sequence[Sequence[int]], k: int = 60) -> di
 
 
 class Retriever:
-    def __init__(self, conn: psycopg.Connection, settings: Settings, embedder: Embedder | None = None):
+    def __init__(
+        self,
+        conn: psycopg.Connection,
+        settings: Settings,
+        embedder: Embedder | None = None,
+        reranker: Reranker | None = None,
+    ):
         if settings.vector_enabled and embedder is None:
             raise ValueError("vector search is enabled but no embedder was given")
         self.conn = conn
         self.settings = settings
         self.embedder = embedder
+        self.reranker = reranker
 
     def search(
         self,
@@ -123,9 +132,16 @@ class Retriever:
         today: date | None = None,
         context_ranking: bool | None = None,
         signals: Collection[str] = SIGNALS,
+        rerank: bool | None = None,
     ) -> list[SearchHit]:
-        """context_ranking overrides the setting per request; signals picks which context signals count."""
+        """context_ranking and rerank override the settings per request; signals picks which context signals count.
+
+        Pipeline: RLS + filters -> BM25 / vector -> fusion -> cross-encoder rerank -> context ranking.
+        """
         use_context = self.settings.context_ranking if context_ranking is None else context_ranking
+        use_rerank = (self.reranker is not None) if rerank is None else rerank
+        if use_rerank and self.reranker is None:
+            raise ValueError("reranking is disabled (set KB_RERANK_ENABLED=true)")
         mode = mode or ("hybrid" if self.settings.vector_enabled else "bm25")
         if mode not in ("bm25", "vector", "hybrid"):
             raise ValueError(f"unknown search mode: {mode}")
@@ -156,14 +172,26 @@ class Retriever:
             # Context ranking looks at the whole candidate pool, so a relevant
             # document for the user's country can overtake one for another country.
             candidates = sorted(fused, key=lambda cid: (-fused[cid], cid))
-            if not use_context:
+            if use_rerank:
+                candidates = candidates[: max(self.settings.rerank_candidates, top_k)]
+            elif not use_context:
                 candidates = candidates[:top_k]
             rows = self._load(candidates)
+
+        # Outside the transaction: model inference is the slow part.
+        reranked: dict[int, tuple[int, float]] = {}
+        if use_rerank and candidates:
+            logits = self.reranker.score(query, [f"{rows[c]['title']}\n\n{rows[c]['text']}" for c in candidates])
+            probs = {cid: 1 / (1 + math.exp(-x)) for cid, x in zip(candidates, logits)}
+            candidates = sorted(candidates, key=lambda cid: (-probs[cid], cid))
+            reranked = {cid: (rank, probs[cid]) for rank, cid in enumerate(candidates, start=1)}
+            fused = probs  # the reranker's judgement becomes the relevance score
 
         hits = []
         for cid in candidates:
             bm25_rank, bm25_score, terms = bm25_by_id.get(cid, (None, None, []))
             vector_rank, vector_score = vector_by_id.get(cid, (None, None))
+            rerank_rank, rerank_score = reranked.get(cid, (None, None))
             row = rows[cid]
             score = fused[cid]
             reasons, warnings = [], []
@@ -179,6 +207,8 @@ class Retriever:
                     vector_score=vector_score,
                     vector_rank=vector_rank,
                     matched_terms=terms,
+                    rerank_score=rerank_score,
+                    rerank_rank=rerank_rank,
                     relevance=fused[cid],
                     reasons=reasons,
                     warnings=warnings,
