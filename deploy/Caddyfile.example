@@ -1,0 +1,10 @@
+# Reverse proxy for the demo (Caddy on the external "edge" docker network).
+# Start the app with: docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d
+# Caddy obtains the HTTPS certificate automatically.
+temp.dekeyser.ai {
+	encode zstd gzip
+	request_body {
+		max_size 1MB
+	}
+	reverse_proxy hackaton-web:8000
+}

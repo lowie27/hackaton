@@ -70,7 +70,7 @@ Pick a demo user, then:
 - **Upload**: add a document with metadata, duplicate check on/off. Two example documents that are not in the database (`data/upload_examples/`) fill the form: a unique one (bike leasing) and a near-copy of the home-working allowance policy that triggers a duplicate alert. **What I can see**: the documents RBAC lets you read. **Notifications**: duplicate alerts.
 - Admins get a *Reset demo data* button. It also asks for `KB_ADMIN_PASSWORD` (unset = reset disabled), because the demo login itself has no passwords.
 
-The first start downloads the embedding model (about 200 MB, cached in a volume). Set `KB_WEB_VECTOR_ENABLED=false` in `.env` for keyword-only. Behind a reverse proxy on an external `edge` network: `docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d`.
+The first start downloads the embedding model (about 200 MB, cached in a volume). Set `KB_WEB_VECTOR_ENABLED=false` in `.env` for keyword-only. Behind a reverse proxy on an external `edge` network: `docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d`. Example Caddy site block: `deploy/Caddyfile.example`.
 
 The login is a demo user picker, not real authentication: the selected user id is kept in an HMAC-signed, HttpOnly cookie (`KB_SESSION_SECRET`), and every endpoint takes the user from that cookie, never from the request.
 
