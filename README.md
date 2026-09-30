@@ -39,13 +39,6 @@ search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + 
 | `src/kb/alerts.py` | duplicate detection, notifications |
 | `src/kb/rbac.py` | user/group admin and write permission checks |
 
-## What is `kb`?
-
-`kb` (short for *knowledge base*) is the Python package in `src/kb`. It holds the whole knowledge layer: storing documents, search, access control and duplicate alerts. You use it two ways:
-
-- **From code** (the UI/API layer): `from kb import KnowledgeBase`, see [below](#using-it-from-the-uiapi-layer).
-- **From the terminal**: `python -m kb <command>` is a small admin/dev CLI (`init`, `seed`, `search`, `ingest`, `notifications`, `embed`, `user`, `group`). Run `python -m kb --help` for the list.
-
 ## Run
 
 Requirements: Python 3.11+ and Docker.
