@@ -17,7 +17,7 @@ from kb.config import Settings
 from kb.db import refresh_index
 from kb.embeddings import Embedder, FastEmbedEmbedder, to_pgvector
 from kb.ingest import Document, chunk_text, find_document_id, load_directory, load_file, update_document_embeddings, write_document
-from kb.retriever import Retriever, SearchHit, SearchMode
+from kb.retriever import Retriever, SearchFilters, SearchHit, SearchMode
 
 
 @dataclass
@@ -35,8 +35,15 @@ class KnowledgeBase:
         self.embedder = embedder if self.settings.vector_enabled else None
         self.retriever = Retriever(conn, self.settings, self.embedder)
 
-    def search(self, user_id: int, query: str, top_k: int = 5, mode: SearchMode | None = None) -> list[SearchHit]:
-        return self.retriever.search(user_id, query, top_k, mode)
+    def search(
+        self,
+        user_id: int,
+        query: str,
+        top_k: int = 5,
+        mode: SearchMode | None = None,
+        filters: SearchFilters | None = None,
+    ) -> list[SearchHit]:
+        return self.retriever.search(user_id, query, top_k, mode, filters)
 
     def upload(self, user_id: int, doc: Document, group_names: Sequence[str] = (), refresh: bool = True) -> UploadResult:
         """Store a document shared with group_names, then check it for near-duplicates.
@@ -97,7 +104,16 @@ class KnowledgeBase:
         spec = json.loads(spec_path.read_text(encoding="utf-8"))
         with self.conn.transaction():
             users = {
-                u["email"]: rbac.upsert_user(self.conn, u["email"], u["name"], u.get("admin", False))
+                u["email"]: rbac.upsert_user(
+                    self.conn,
+                    u["email"],
+                    u["name"],
+                    u.get("admin", False),
+                    country=u.get("country"),
+                    location=u.get("location"),
+                    department=u.get("department"),
+                    position=u.get("position"),
+                )
                 for u in spec["users"]
             }
             for name, group in spec["groups"].items():

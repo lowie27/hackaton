@@ -3,6 +3,9 @@ title: Holiday pay for white-collar employees (Belgium) - copied from Teams
 source: teams
 country: BE
 updated_at: 2025-09-12
+department: Payroll
+language: en
+tags: holiday pay, white-collar
 ---
 SYNTHETIC SAMPLE DOCUMENT - not real SD Worx policy.
 

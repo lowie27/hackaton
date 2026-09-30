@@ -6,11 +6,13 @@ app gets the user id from its authentication layer.
 
 import argparse
 import textwrap
+from datetime import date
 from pathlib import Path
 
 from kb import rbac
 from kb.config import Settings
 from kb.db import connect, init_schema
+from kb.retriever import SearchFilters
 from kb.service import KnowledgeBase
 
 DEFAULT_SEED = Path(__file__).resolve().parents[2] / "data" / "sample" / "seed.json"
@@ -28,7 +30,15 @@ def print_hits(hits) -> None:
             why.append(f"vector #{hit.vector_rank} (cos {hit.vector_score:.2f})")
         print(f"{rank}. [{hit.score:.4f}] {hit.title}  ({hit.external_id}#{hit.chunk_ord})")
         print(f"   owner={hit.owner or '-'} country={hit.country or 'all'} updated={updated} groups={','.join(hit.groups) or 'private'}")
+        scope = [f"dept={hit.department}" if hit.department else None, f"site={hit.location}" if hit.location else None,
+                 f"lang={hit.language}" if hit.language else None, f"tags={','.join(hit.tags)}" if hit.tags else None]
+        if any(scope):
+            print(f"   {' '.join(x for x in scope if x)}")
         print(f"   why: {'; '.join(why)}")
+        if hit.reasons:
+            print(f"   trust: {'; '.join(hit.reasons)}")
+        if hit.warnings:
+            print(f"   CAREFUL: {'; '.join(hit.warnings)}")
         print(textwrap.indent(textwrap.shorten(hit.text, 240), "   "))
 
 
@@ -45,6 +55,10 @@ def main() -> None:
     user.add_argument("email")
     user.add_argument("name")
     user.add_argument("--admin", action="store_true")
+    user.add_argument("--country")
+    user.add_argument("--location")
+    user.add_argument("--department")
+    user.add_argument("--position")
 
     group = sub.add_parser("group", help="create a group, optionally adding a member")
     group.add_argument("name")
@@ -61,6 +75,13 @@ def main() -> None:
     search.add_argument("--as", dest="user", required=True, metavar="EMAIL")
     search.add_argument("-k", "--top-k", type=int, default=5)
     search.add_argument("--mode", choices=["bm25", "vector", "hybrid"])
+    search.add_argument("--country", help="only this country (plus documents for all countries)")
+    search.add_argument("--department", help="only this department (plus documents for all departments)")
+    search.add_argument("--source")
+    search.add_argument("--language")
+    search.add_argument("--tag", action="append", default=[], help="required tag (repeatable)")
+    search.add_argument("--valid-on", type=date.fromisoformat, metavar="YYYY-MM-DD",
+                        help="only documents in force on that date")
 
     notes = sub.add_parser("notifications", help="list a user's notifications")
     notes.add_argument("--as", dest="user", required=True, metavar="EMAIL")
@@ -74,7 +95,9 @@ def main() -> None:
             init_schema(conn, settings)
             print(f"schema ready (vector search {'on' if settings.vector_enabled else 'off'})")
         elif args.command == "user":
-            print(f"user id {rbac.upsert_user(conn, args.email, args.name, args.admin)}")
+            uid = rbac.upsert_user(conn, args.email, args.name, args.admin, country=args.country,
+                                   location=args.location, department=args.department, position=args.position)
+            print(f"user id {uid}")
         elif args.command == "group":
             group_id = rbac.upsert_group(conn, args.name)
             if args.member:
@@ -99,7 +122,8 @@ def main() -> None:
                     for s in result.similar:
                         print(f"  doc {result.doc_id} is similar to {s.title or 'a document you cannot see'}")
             elif args.command == "search":
-                print_hits(kb.search(rbac.user_id_by_email(conn, args.user), args.query, args.top_k, args.mode))
+                filters = SearchFilters(args.country, args.department, args.source, args.language, args.tag, args.valid_on)
+                print_hits(kb.search(rbac.user_id_by_email(conn, args.user), args.query, args.top_k, args.mode, filters))
 
 
 if __name__ == "__main__":

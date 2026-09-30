@@ -13,14 +13,31 @@ class PermissionDenied(Exception):
     pass
 
 
-def upsert_user(conn: psycopg.Connection, email: str, display_name: str, is_admin: bool = False) -> int:
+def upsert_user(
+    conn: psycopg.Connection,
+    email: str,
+    display_name: str,
+    is_admin: bool = False,
+    *,
+    country: str | None = None,
+    location: str | None = None,
+    department: str | None = None,
+    position: str | None = None,
+) -> int:
     return conn.execute(
         """
-        INSERT INTO kb.users (email, display_name, is_admin) VALUES (%s, %s, %s)
-        ON CONFLICT (email) DO UPDATE SET display_name = EXCLUDED.display_name, is_admin = EXCLUDED.is_admin
+        INSERT INTO kb.users (email, display_name, is_admin, country, location, department, position)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (email) DO UPDATE SET
+            display_name = EXCLUDED.display_name,
+            is_admin = EXCLUDED.is_admin,
+            country = EXCLUDED.country,
+            location = EXCLUDED.location,
+            department = EXCLUDED.department,
+            position = EXCLUDED.position
         RETURNING id
         """,
-        (email.strip().lower(), display_name, is_admin),
+        (email.strip().lower(), display_name, is_admin, country and country.upper(), location, department, position),
     ).fetchone()[0]
 
 

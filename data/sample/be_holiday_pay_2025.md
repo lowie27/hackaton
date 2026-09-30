@@ -4,6 +4,10 @@ source: policy
 owner: Payroll BE - Legal Desk
 country: BE
 updated_at: 2025-02-10
+department: Payroll
+language: en
+tags: holiday pay, white-collar, exit
+valid_from: 2025-01-01
 ---
 SYNTHETIC SAMPLE DOCUMENT - not real SD Worx policy.
 

@@ -5,14 +5,15 @@ documents the user may read.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Literal
 
 import psycopg
 from psycopg.rows import dict_row
 
 from kb.config import Settings
+from kb.context import UserContext, assess
 from kb.db import user_session
 from kb.embeddings import Embedder, to_pgvector
 
@@ -38,6 +39,60 @@ class SearchHit:
     country: str | None
     updated_at: datetime | None
     groups: list[str]
+    department: str | None = None
+    location: str | None = None
+    language: str | None = None
+    tags: list[str] = field(default_factory=list)
+    valid_from: date | None = None
+    valid_until: date | None = None
+    uploader_position: str | None = None
+    uploader_department: str | None = None
+    uploader_is_manager: bool = False
+    relevance: float | None = None  # score before context ranking
+    reasons: list[str] = field(default_factory=list)  # why it applies / can be trusted
+    warnings: list[str] = field(default_factory=list)  # why to be careful
+
+
+@dataclass
+class SearchFilters:
+    """Hard filters, applied in SQL before top_k. Empty fields do not filter."""
+
+    country: str | None = None  # also keeps documents that apply to all countries
+    department: str | None = None  # also keeps documents for all departments
+    source: str | None = None
+    language: str | None = None
+    tags: Sequence[str] = ()  # document must carry all of them
+    valid_on: date | None = None  # drop documents not in force on that date
+
+    def where(self) -> tuple[str, dict]:
+        """SQL condition on alias d (kb.documents). Values are always bound parameters."""
+        clauses, params = ["true"], {}
+        if self.country:
+            clauses.append("(d.country IS NULL OR upper(d.country) = %(f_country)s)")
+            params["f_country"] = self.country.strip().upper()
+        if self.department:
+            clauses.append("(d.department IS NULL OR lower(d.department) = %(f_department)s)")
+            params["f_department"] = self.department.strip().lower()
+        if self.source:
+            clauses.append("lower(d.source) = %(f_source)s")
+            params["f_source"] = self.source.strip().lower()
+        if self.language:
+            clauses.append("d.language = %(f_language)s")
+            params["f_language"] = self.language.strip().lower()
+        if self.tags:
+            clauses.append("d.tags @> %(f_tags)s")
+            params["f_tags"] = [t.strip().lower() for t in self.tags]
+        if self.valid_on:
+            clauses.append(
+                "(d.valid_from IS NULL OR d.valid_from <= %(f_valid_on)s)"
+                " AND (d.valid_until IS NULL OR d.valid_until >= %(f_valid_on)s)"
+            )
+            params["f_valid_on"] = self.valid_on
+        return " AND ".join(clauses), params
+
+    @property
+    def active(self) -> bool:
+        return any((self.country, self.department, self.source, self.language, self.tags, self.valid_on))
 
 
 def reciprocal_rank_fusion(rankings: Sequence[Sequence[int]], k: int = 60) -> dict[int, float]:
@@ -56,7 +111,15 @@ class Retriever:
         self.settings = settings
         self.embedder = embedder
 
-    def search(self, user_id: int, query: str, top_k: int = 5, mode: SearchMode | None = None) -> list[SearchHit]:
+    def search(
+        self,
+        user_id: int,
+        query: str,
+        top_k: int = 5,
+        mode: SearchMode | None = None,
+        filters: SearchFilters | None = None,
+        today: date | None = None,
+    ) -> list[SearchHit]:
         mode = mode or ("hybrid" if self.settings.vector_enabled else "bm25")
         if mode not in ("bm25", "vector", "hybrid"):
             raise ValueError(f"unknown search mode: {mode}")
@@ -64,14 +127,17 @@ class Retriever:
             raise ValueError("vector search is disabled (set KB_VECTOR_ENABLED=true)")
         if not query.strip():
             return []
+        filters = filters or SearchFilters()
+        today = today or date.today()
         top_k = max(1, min(top_k, 50))
         pool = min(max(top_k * 4, 20), 100)
         # Embed before opening the transaction: model inference is the slow part.
         query_vec = to_pgvector(self.embedder.embed_query(query)) if mode != "bm25" else None
+        user = self._user_context(user_id)
 
         with user_session(self.conn, user_id):
-            bm25 = self._bm25(query, pool) if mode != "vector" else []
-            vector = self._vector(query_vec, pool) if query_vec else []
+            bm25 = self._bm25(query, pool, filters) if mode != "vector" else []
+            vector = self._vector(query_vec, pool, filters) if query_vec else []
 
             bm25_by_id = {cid: (rank, score, terms) for rank, (cid, score, terms) in enumerate(bm25, start=1)}
             vector_by_id = {cid: (rank, score) for rank, (cid, score) in enumerate(vector, start=1)}
@@ -81,44 +147,79 @@ class Retriever:
                 fused = {cid: score for cid, score, _ in bm25}
             else:
                 fused = {cid: score for cid, score in vector}
-            ranked = sorted(fused, key=lambda cid: (-fused[cid], cid))[:top_k]
-            rows = self._load(ranked)
+            # Context ranking looks at the whole candidate pool, so a relevant
+            # document for the user's country can overtake one for another country.
+            candidates = sorted(fused, key=lambda cid: (-fused[cid], cid))
+            if not self.settings.context_ranking:
+                candidates = candidates[:top_k]
+            rows = self._load(candidates)
 
         hits = []
-        for cid in ranked:
+        for cid in candidates:
             bm25_rank, bm25_score, terms = bm25_by_id.get(cid, (None, None, []))
             vector_rank, vector_score = vector_by_id.get(cid, (None, None))
+            row = rows[cid]
+            score = fused[cid]
+            reasons, warnings = [], []
+            if self.settings.context_ranking:
+                assessment = assess(row, user, today)
+                score *= assessment.factor
+                reasons, warnings = assessment.reasons, assessment.warnings
             hits.append(
                 SearchHit(
-                    score=fused[cid],
+                    score=score,
                     bm25_score=bm25_score,
                     bm25_rank=bm25_rank,
                     vector_score=vector_score,
                     vector_rank=vector_rank,
                     matched_terms=terms,
-                    **rows[cid],
+                    relevance=fused[cid],
+                    reasons=reasons,
+                    warnings=warnings,
+                    **row,
                 )
             )
-        return hits
+        hits.sort(key=lambda h: (-h.score, h.chunk_id))
+        return hits[:top_k]
 
-    def _bm25(self, query: str, limit: int) -> list[tuple[int, float, list[str]]]:
+    def _user_context(self, user_id: int) -> UserContext:
+        # Trusted read on the owner connection: the profile of the authenticated user only.
+        row = self.conn.execute(
+            "SELECT country, location, department, position FROM kb.users WHERE id = %s", (user_id,)
+        ).fetchone()
+        return UserContext(*row) if row else UserContext()
+
+    def _bm25(self, query: str, limit: int, filters: SearchFilters) -> list[tuple[int, float, list[str]]]:
+        where, params = filters.where()
+        # With filters, ask bm25_search for more so filtered-out chunks do not use up the limit.
         return self.conn.execute(
-            "SELECT chunk_id, score, matched_terms FROM kb.bm25_search(%s, %s)", (query, limit)
+            f"""
+            SELECT b.chunk_id, b.score, b.matched_terms
+            FROM kb.bm25_search(%(q)s, %(inner)s) b
+            JOIN kb.chunks c ON c.id = b.chunk_id
+            JOIN kb.documents d ON d.id = c.doc_id
+            WHERE {where}
+            ORDER BY b.score DESC, b.chunk_id
+            LIMIT %(limit)s
+            """,
+            {"q": query, "inner": 5000 if filters.active else limit, "limit": limit, **params},
         ).fetchall()
 
-    def _vector(self, query_vec: str, limit: int) -> list[tuple[int, float]]:
+    def _vector(self, query_vec: str, limit: int, filters: SearchFilters) -> list[tuple[int, float]]:
+        where, params = filters.where()
         # Without iterative scans, HNSW returns ~40 candidates and RLS may filter
         # all of them away; relaxed_order keeps scanning until LIMIT is met.
         self.conn.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
         rows = self.conn.execute(
-            """
+            f"""
             SELECT c.id, 1 - (c.embedding <=> %(q)s::vector) AS similarity
             FROM kb.chunks c
-            WHERE c.embedding IS NOT NULL
+            JOIN kb.documents d ON d.id = c.doc_id
+            WHERE c.embedding IS NOT NULL AND {where}
             ORDER BY c.embedding <=> %(q)s::vector
             LIMIT %(limit)s
             """,
-            {"q": query_vec, "limit": limit},
+            {"q": query_vec, "limit": limit, **params},
         ).fetchall()
         rows = [(cid, sim) for cid, sim in rows if sim >= self.settings.min_vector_similarity]
         return sorted(rows, key=lambda r: (-r[1], r[0]))  # relaxed_order may be slightly out of order
@@ -129,6 +230,8 @@ class Retriever:
                 """
                 SELECT c.id AS chunk_id, c.ord AS chunk_ord, c.text,
                        d.id AS doc_id, d.external_id, d.title, d.source, d.owner, d.country, d.updated_at,
+                       d.department, d.location, d.language, d.tags, d.valid_from, d.valid_until,
+                       d.uploader_position, d.uploader_department, d.uploader_is_manager,
                        array(
                            SELECT g.name FROM kb.document_groups dg JOIN kb.groups g ON g.id = dg.group_id
                            WHERE dg.doc_id = d.id ORDER BY g.name

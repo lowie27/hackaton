@@ -1,9 +1,9 @@
 {
   "users": [
     {"email": "admin@example.com", "name": "Demo Admin", "admin": true},
-    {"email": "anna@example.com", "name": "Anna (Payroll BE lead)"},
-    {"email": "bram@example.com", "name": "Bram (Payroll BE consultant)"},
-    {"email": "noor@example.com", "name": "Noor (Payroll NL lead)"}
+    {"email": "anna@example.com", "name": "Anna (Payroll BE lead)", "country": "BE", "location": "Antwerp", "department": "Payroll", "position": "Payroll BE lead"},
+    {"email": "bram@example.com", "name": "Bram (Payroll BE consultant)", "country": "BE", "location": "Antwerp", "department": "Payroll", "position": "Payroll consultant"},
+    {"email": "noor@example.com", "name": "Noor (Payroll NL lead)", "country": "NL", "location": "Utrecht", "department": "Payroll", "position": "Payroll NL lead"}
   ],
   "groups": {
     "payroll-be": {"managers": ["anna@example.com"], "members": ["bram@example.com"]},

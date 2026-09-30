@@ -13,7 +13,10 @@ import psycopg
 from kb.embeddings import to_pgvector
 
 SUPPORTED_SUFFIXES = {".md", ".txt"}
-METADATA_KEYS = {"title", "source", "owner", "country", "updated_at"}
+METADATA_KEYS = {
+    "title", "source", "owner", "country", "updated_at",
+    "department", "location", "language", "tags", "valid_from", "valid_until",
+}
 
 
 @dataclass
@@ -21,7 +24,7 @@ class Document:
     external_id: str
     title: str
     body: str
-    meta: dict[str, str] = field(default_factory=dict)
+    meta: dict[str, str | list[str]] = field(default_factory=dict)
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -93,6 +96,20 @@ def find_document_id(conn: psycopg.Connection, external_id: str) -> int | None:
     return row[0] if row else None
 
 
+def _date(value: str | None) -> date | None:
+    return date.fromisoformat(value.strip()) if value and value.strip() else None
+
+
+def _tags(value: str | Sequence[str] | None) -> list[str]:
+    """Frontmatter gives "a, b"; the API may pass a list. Lowercased, deduplicated, order kept."""
+    items = value.split(",") if isinstance(value, str) else (value or [])
+    return list(dict.fromkeys(t.strip().lower() for t in items if t.strip()))
+
+
+def _upper(value: str | None) -> str | None:
+    return value.strip().upper() if value and value.strip() else None
+
+
 def write_document(
     conn: psycopg.Connection,
     doc: Document,
@@ -102,29 +119,58 @@ def write_document(
     embeddings: Sequence[Sequence[float]] | None = None,
 ) -> int:
     """Insert or replace a document, its group shares and its chunks. Call inside a transaction."""
-    updated_at = doc.meta.get("updated_at")
+    meta = doc.meta
+    valid_from, valid_until = _date(meta.get("valid_from")), _date(meta.get("valid_until"))
+    if valid_from and valid_until and valid_until < valid_from:
+        raise ValueError("valid_until is before valid_from")
+    # The uploader's position and department come from their profile, never from
+    # the document, so an upload cannot claim someone else's authority.
     doc_id = conn.execute(
         """
-        INSERT INTO kb.documents (external_id, title, source, owner, country, updated_at, uploaded_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO kb.documents (
+            external_id, title, source, owner, country, updated_at, uploaded_by,
+            department, location, language, tags, valid_from, valid_until,
+            uploader_position, uploader_department, uploader_is_manager
+        )
+        SELECT %(external_id)s, %(title)s, %(source)s, %(owner)s, %(country)s, %(updated_at)s, u.id,
+               %(department)s, %(location)s, %(language)s, %(tags)s, %(valid_from)s, %(valid_until)s,
+               u.position, u.department,
+               EXISTS (
+                   SELECT 1 FROM kb.group_members gm
+                   WHERE gm.user_id = u.id AND gm.role = 'manager' AND gm.group_id = ANY(%(groups)s)
+               )
+        FROM kb.users u WHERE u.id = %(uploader)s
         ON CONFLICT (external_id) DO UPDATE SET
             title = EXCLUDED.title,
             source = EXCLUDED.source,
             owner = EXCLUDED.owner,
             country = EXCLUDED.country,
             updated_at = EXCLUDED.updated_at,
+            department = EXCLUDED.department,
+            location = EXCLUDED.location,
+            language = EXCLUDED.language,
+            tags = EXCLUDED.tags,
+            valid_from = EXCLUDED.valid_from,
+            valid_until = EXCLUDED.valid_until,
             ingested_at = now()
         RETURNING id
         """,
-        (
-            doc.external_id,
-            doc.title,
-            doc.meta.get("source"),
-            doc.meta.get("owner"),
-            doc.meta.get("country"),
-            date.fromisoformat(updated_at) if updated_at else None,
-            uploader_id,
-        ),
+        {
+            "external_id": doc.external_id,
+            "title": doc.title,
+            "source": meta.get("source"),
+            "owner": meta.get("owner"),
+            "country": _upper(meta.get("country")),
+            "updated_at": _date(meta.get("updated_at")),
+            "uploader": uploader_id,
+            "department": meta.get("department"),
+            "location": meta.get("location"),
+            "language": (meta.get("language") or "").strip().lower() or None,
+            "tags": _tags(meta.get("tags")),
+            "valid_from": valid_from,
+            "valid_until": valid_until,
+            "groups": list(set(group_ids)),
+        },
     ).fetchone()[0]
 
     conn.execute("DELETE FROM kb.document_groups WHERE doc_id = %s", (doc_id,))

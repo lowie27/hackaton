@@ -26,6 +26,9 @@ class Settings:
     # An upload at or above either score raises a near-duplicate alert.
     duplicate_lexical_threshold: float = 0.5
     duplicate_vector_threshold: float = 0.9
+    # Re-rank by the user's country/department and the document's validity,
+    # freshness, source and owner (src/kb/context.py). Off = pure relevance.
+    context_ranking: bool = True
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -33,6 +36,7 @@ class Settings:
         d = cls()
         return cls(
             vector_enabled=_flag("KB_VECTOR_ENABLED", d.vector_enabled),
+            context_ranking=_flag("KB_CONTEXT_RANKING", d.context_ranking),
             embedding_model=os.environ.get("KB_EMBEDDING_MODEL", d.embedding_model),
             embedding_dim=int(os.environ.get("KB_EMBEDDING_DIM", d.embedding_dim)),
             duplicate_lexical_threshold=float(

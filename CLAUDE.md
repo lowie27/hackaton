@@ -57,13 +57,16 @@ Direction so far: a trusted knowledge layer for SD Worx employees. Each feature 
 - Hybrid search that explains itself. Every hit shows why it matched (BM25 terms and rank, vector similarity and rank) and its owner, country, last update and groups. Answers "What applies in this context?" and "Which answer should a person trust?"
 - Near-duplicate alerts on upload. The uploader, the other document's uploader and the group managers get notified. Covers the "Detect" inspiration area (duplicated, outdated knowledge).
 - Access control. Users only find documents shared with their groups. This is also what the Aikido audit checks (p. 6).
+- Context-aware ranking that explains itself (`src/kb/context.py`). Documents carry country, location, department, language, tags, a validity period (`valid_from`/`valid_until`) and a snapshot of the uploader's position. Users have a profile (country, location, department, position). Results that apply to the user move up, and each hit lists reasons ("applies to your country (BE)", "official policy document") and warnings ("expired on 2024-12-31", "no accountable owner", "applies to NL, you work in BE"). Answers "What is current?", "What applies in this context?" and "Which answer should a person trust?". This is the p. 5 example friction (recently updated / no owner / other country) made visible.
 - TODO: the one "moment of doubt" for the demo is not chosen yet. Candidate: contradiction detection, where same-topic documents give different answers (the sample data has an 85% vs 92% holiday pay case). The current alerts do not catch this: those two docs score about 0.3 word overlap and 0.6 cosine, below the 0.5 and 0.9 thresholds.
 
 ## Status
 
-Working and tested (25 tests, `pytest` against Postgres with pgvector):
+Working and tested (46 tests, `pytest` against Postgres with pgvector):
 
 - `python -m kb init | seed | search | notifications | ingest | embed`. `seed` loads demo users (anna, bram, noor, admin at example.com), groups and the synthetic documents in `data/sample/`.
+- Search filters (`SearchFilters`, CLI `--country --department --source --language --tag --valid-on`) run in SQL before top-k and under RLS.
+- Demo flow: `python -m kb search "double holiday pay" --as bram@example.com` ranks the 2025 policy first, flags the Teams copy (informal, no owner) and the 2019 FAQ (expired, 7 years old).
 - Demo flow: Bram searches and sees only payroll-be documents. A Dutch query from Noor finds the NL document. Bram uploads a Teams copy of the 2025 policy with 93% instead of 92%, and Anna and Bram get notified (89% word overlap, 99% meaning).
 
 Not done:
@@ -76,6 +79,8 @@ Not done:
 ## Code rules
 
 - Anything done on behalf of a user runs inside `kb.db.user_session`, which switches to the `kb_app` role so row-level security applies. Never query user-facing data on the owner connection.
+- The only owner-connection read for a user request is that user's own profile (`Retriever._user_context`), keyed by the authenticated id.
+- Uploader position, department and manager flag are copied from `kb.users` at upload time, never taken from document metadata.
 - Every write path calls a check in `src/kb/rbac.py` first. User ids come from the API's authentication, never from the request body.
 - Notifications and upload results never name a document the recipient cannot read (`rbac.can_read`).
 - SQL files in `sql/` are idempotent and applied in name order by `python -m kb init`. pgvector lives in `sql/optional/vector.sql` and is only applied when `KB_VECTOR_ENABLED=true`.
