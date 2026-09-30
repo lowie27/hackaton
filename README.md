@@ -39,21 +39,37 @@ search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + 
 | `src/kb/alerts.py` | duplicate detection, notifications |
 | `src/kb/rbac.py` | user/group admin and write permission checks |
 
+## What is `kb`?
+
+`kb` (short for *knowledge base*) is the Python package in `src/kb`. It holds the whole knowledge layer: storing documents, search, access control and duplicate alerts. You use it two ways:
+
+- **From code** (the UI/API layer): `from kb import KnowledgeBase`, see [below](#using-it-from-the-uiapi-layer).
+- **From the terminal**: `python -m kb <command>` is a small admin/dev CLI (`init`, `seed`, `search`, `ingest`, `notifications`, `embed`, `user`, `group`). Run `python -m kb --help` for the list.
+
 ## Run
 
-```bash
-cp .env.example .env            # change the password in both places
-docker compose up -d            # Postgres 17 with pgvector, bound to localhost
-python -m venv .venv && . .venv/bin/activate
-pip install -e '.[vector,dev]'  # drop "vector," for BM25 only
+Requirements: Python 3.11+ and Docker.
 
+```bash
+# 1. Database (Postgres 17 + pgvector, bound to localhost)
+cp .env.example .env            # change the password in both places
+docker compose up -d
+
+# 2. Python dependencies (installs the kb package too)
+python -m venv .venv
+. .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# 3. Create the schema, load demo data, try it
 python -m kb init               # schema + RLS (+ pgvector if KB_VECTOR_ENABLED=true)
 python -m kb seed               # demo users, groups, documents (data/sample/seed.json)
 python -m kb search "double holiday pay" --as bram@example.com
 python -m kb search "holiday pay" --as bram@example.com --valid-on 2026-09-30 --tag "holiday pay"
 python -m kb notifications --as anna@example.com
-pytest
+pytest                          # 46 tests, needs the database from step 1
 ```
+
+`requirements.txt` includes `fastembed` for vector search. For BM25 only (smaller install, no model download) use `pip install -e .` instead and keep `KB_VECTOR_ENABLED=false`.
 
 Toggle vectors with `KB_VECTOR_ENABLED=true|false` in `.env`. After turning them on for existing data, run `python -m kb init` and then `python -m kb embed`. The default model (`paraphrase-multilingual-MiniLM-L12-v2`, runs locally via fastembed) is multilingual, so Dutch and French queries match English documents.
 

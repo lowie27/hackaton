@@ -1,0 +1,15 @@
+# pip install -r requirements.txt   (run from the repo root, inside a venv)
+# Installs the kb package itself in editable mode plus everything it needs.
+# Kept in sync with pyproject.toml.
+
+-e .
+
+psycopg[binary]>=3.2
+python-dotenv>=1.0
+
+# Vector half of hybrid search (KB_VECTOR_ENABLED=true). Local multilingual
+# embeddings; the model (~200 MB) downloads on first use.
+fastembed>=0.4
+
+# Tests
+pytest>=8
