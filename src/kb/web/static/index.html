@@ -75,6 +75,19 @@ textarea { min-height: 140px; resize: vertical; }
 .box .t { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 .snippet { margin-top: 8px; font-size: 13px; color: var(--ink); opacity: .85; white-space: pre-wrap; }
 .factor { font-weight: 600; }
+.box.bad { background: var(--bad-soft); color: var(--bad); margin-top: 8px; }
+.box.bad q { color: var(--ink); opacity: .85; }
+.dispute { padding: 12px 14px; margin-bottom: 12px; border-left: 4px solid var(--bad); }
+.dispute h4 { margin: 0 0 2px; font-size: 14px; }
+.claim { display: grid; grid-template-columns: 34px 70px 1fr; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); align-items: start; }
+.claim .v { font-weight: 700; font-size: 15px; }
+.claim.best .v { color: var(--good); }
+.claim:not(.best) .v { color: var(--bad); }
+.claim q { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.claim .verdict { font-size: 12.5px; margin-top: 2px; }
+.claim.best .verdict { color: var(--good); }
+.claim:not(.best) .verdict { color: var(--warn); }
+mark { background: var(--warn-soft); color: inherit; padding: 0 2px; border-radius: 3px; }
 .factor.up { color: var(--good); } .factor.down { color: var(--bad); }
 .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 900px) { .compare { grid-template-columns: 1fr; } }
@@ -132,7 +145,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       <button data-mode="hybrid" data-tip="Combines the keyword and meaning rankings (reciprocal rank fusion).">Hybrid</button>
     </div>
     <div class="hint" id="modeHint" style="margin-top:4px"></div>
-    <label class="tog" data-tip="A second AI model (cross-encoder) reads the question and each of the top 20 candidates together and re-scores them. Slower, but more accurate than word or vector matching alone."><input type="checkbox" id="rerankOn">
+    <label class="tog" data-tip="A second AI model (cross-encoder) reads the question and each of the top 20 candidates together and re-scores them. Slower, but more accurate than word or vector matching alone."><input type="checkbox" id="rerankOn" checked>
       <span><b>Rerank top 20</b><small>cross-encoder, after keyword/meaning</small></span></label>
 
     <h3>Context ranking</h3>
@@ -155,11 +168,12 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     <label class="tog" data-tip="Show the metadata chips: country, owner, last update, validity, tags, who uploaded it."><input type="checkbox" id="showMeta" checked><span><b>Show metadata</b></span></label>
     <label class="tog" data-tip="Show which words matched and how similar the meaning is."><input type="checkbox" id="showWhy" checked><span><b>Show why it matched</b></span></label>
     <label class="tog" data-tip="Show the green reasons to rely on a result and the amber warnings."><input type="checkbox" id="showTrust" checked><span><b>Show trust signals</b></span></label>
+    <label class="tog" data-tip="Compare the facts in the results (percentages, amounts, numbers of days, weeks, months, years). When documents for the same country state a different value in a sentence about the same thing, show both side by side."><input type="checkbox" id="showConflicts" checked><span><b>Show where results disagree</b></span></label>
     <div class="field"><span>Results</span><input type="number" id="topK" data-tip="How many results to show." min="1" max="50" value="8"></div>
 
     <div id="adminBox" class="hidden">
       <h3>Admin</h3>
-      <button class="btn danger small" id="resetBtn" data-tip="Delete all uploads and notifications and reload the demo data. Admins only.">Reset demo data</button>
+      <button class="btn danger small" id="resetBtn" data-tip="Delete all uploads and notifications and reload the demo data. Needs the admin password.">Reset demo data</button>
     </div>
   </aside>
 
@@ -242,6 +256,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
           <li><b>Relevance.</b> <i>Keyword</i> = BM25 computed in SQL (shows matched terms). <i>Meaning</i> = multilingual embeddings in pgvector (Dutch queries find English documents). <i>Hybrid</i> fuses both rankings with reciprocal rank fusion.</li>
           <li><b>Rerank</b> (optional). A cross-encoder (multilingual jina-reranker-v2) reads the question together with each of the top 20 candidates and re-scores them. More accurate than the first pass, too slow to run on everything, so it only sees the shortlist.</li>
           <li><b>Context ranking.</b> Each result is scored against who you are and how trustworthy it is. Every adjustment is a sentence you can read: green reasons, amber warnings. Switch each signal off in the sidebar to see its effect.</li>
+          <li><b>Where results disagree.</b> Facts (percentages, euro amounts, numbers of days, weeks, months, years) are extracted from every result. Facts of the same kind, in sentences about the same thing, for the same country, are compared. Different values are shown side by side with the quoted sentences, the best-ranked source first with its reasons, the others with their warnings. Different countries are never compared: that is a different context, not a contradiction.</li>
           <li><b>Duplicate detection</b> on upload. Near-copies notify the uploader, the other uploader and group managers, without naming documents they cannot read.</li>
         </ol>
         <h3>Context signals and weights</h3>
@@ -255,6 +270,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
           <tr><td>source</td><td>+20% official policy</td><td>−10% Teams / email / chat</td></tr>
           <tr><td>owner</td><td></td><td>−10% no accountable owner</td></tr>
           <tr><td>uploader</td><td>+10% uploaded by a manager of its group</td><td></td></tr>
+          <tr><td>conflicts</td><td></td><td>−40% contradicts a more trustworthy result</td></tr>
         </table>
         <p class="hint">Final score = relevance × (1 + sum of adjustments), never below 10% of relevance. With rerank on, relevance is the cross-encoder's score (0 to 100%).</p>
       </div>
@@ -272,6 +288,7 @@ const SIGNAL_INFO = {
   source: "Official vs informal source",
   owner: "Has an accountable owner",
   uploader: "Uploaded by a group manager",
+  conflicts: "Does not contradict a more trustworthy result",
 };
 const SIGNAL_TIPS = {
   country: "+30% for your country, −50% for another country.",
@@ -282,6 +299,7 @@ const SIGNAL_TIPS = {
   source: "+20% for official policy, −10% for Teams, email or chat.",
   owner: "−10% when nobody is accountable for the document.",
   uploader: "+10% when uploaded by a manager of the group it is shared with.",
+  conflicts: "−40% when it states a different value than a more trustworthy result about the same thing (needs 'Show where results disagree').",
 };
 const PRESETS = {
   context: { name: "Relevance only vs Context-aware", note: "Same search, same documents. Right side re-ranks by what applies to you and what can be trusted.",
@@ -330,6 +348,7 @@ async function boot() {
     <button class="btn ghost small" id="switchBtn" data-tip="Log out and pick another demo user.">Switch user</button>`;
   $("switchBtn").onclick = async () => { await api("/api/logout", {}); showLogin(); };
   $("adminBox").classList.toggle("hidden", !me.is_admin);
+  document.querySelector('#tabs button[data-tab="search"]').click();
   mode = me.vector_enabled ? "hybrid" : "bm25";
   renderMode();
   $("uGroups").innerHTML = me.groups.length ? me.groups.map((g) => `<label class="tog"><input type="checkbox" value="${esc(g.name)}" checked> ${esc(g.name)} <span class="hint">(${esc(g.role)})</span></label>`).join("") : '<span class="hint">You are in no groups: the document stays private.</span>';
@@ -350,7 +369,7 @@ function renderMode() {
 }
 document.querySelectorAll("#modeSeg button").forEach((b) => b.onclick = () => { mode = b.dataset.mode; renderMode(); runSearch(); });
 $("signalList").innerHTML = Object.entries(SIGNAL_INFO).map(([k, v]) => `<label class="tog" data-tip="${esc(SIGNAL_TIPS[k])}"><input type="checkbox" class="sig" value="${k}" checked><span>${esc(v)}<small>${k}</small></span></label>`).join("");
-["rerankOn", "ctxOn", "filtersOn", "showMeta", "showWhy", "showTrust", "topK", "fCountry", "fDepartment", "fSource", "fLanguage", "fTag", "fValidOn"].forEach((id) => $(id).addEventListener("change", () => { if (id === "ctxOn") syncSignals(); runSearch(); }));
+["rerankOn", "ctxOn", "filtersOn", "showConflicts", "showMeta", "showWhy", "showTrust", "topK", "fCountry", "fDepartment", "fSource", "fLanguage", "fTag", "fValidOn"].forEach((id) => $(id).addEventListener("change", () => { if (id === "ctxOn") syncSignals(); runSearch(); }));
 document.addEventListener("change", (e) => { if (e.target.classList.contains("sig")) runSearch(); });
 function syncSignals() { document.querySelectorAll(".sig").forEach((c) => c.disabled = !$("ctxOn").checked); }
 
@@ -367,6 +386,7 @@ function filters() {
 }
 function currentConfig() {
   return { mode, top_k: +$("topK").value || 8, context_ranking: $("ctxOn").checked, rerank: $("rerankOn").checked,
+    detect_conflicts: $("showConflicts").checked,
     signals: [...document.querySelectorAll(".sig:checked")].map((c) => c.value), filters: filters() };
 }
 
@@ -390,10 +410,43 @@ function hitCard(h, i) {
     ${showMeta ? `<div class="chips">${meta.map(([k, v]) => `<span class="chip"><span class="k">${k}</span> ${esc(v)}</span>`).join("")}</div>` : ""}
     ${showWhy ? `<div class="why">Matched: ${why.join(" · ") || "-"}</div>` : ""}
     ${showTrust && (h.reasons.length || h.warnings.length) ? `<div class="signals">
-      ${h.reasons.length ? `<div class="box good"><div class="t">Why you can rely on it</div><ul>${h.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>` : "<div></div>"}
+      ${h.reasons.length ? `<div class="box good"><div class="t">${h.warnings.length ? "What speaks for it" : "Why you can rely on it"}</div><ul>${h.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>` : "<div></div>"}
       ${h.warnings.length ? `<div class="box warn"><div class="t">Be careful</div><ul>${h.warnings.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>` : ""}
     </div>` : ""}
+    ${conflictBox(h)}
     <div class="snippet">${esc(h.text.replace(/^SYNTHETIC.*\n+|^SYNTHETISCH.*\n+/m, ""))}</div>
+  </div>`;
+}
+function conflictBox(h) {
+  const ds = h.disagreements || [];
+  if (!ds.length || !$("showConflicts").checked) return "";
+  if (ds[0].most_trusted) {
+    return `<div class="box good" style="margin-top:8px"><div class="t">Other results contradict this, but this is the most trustworthy source</div><ul>${ds.map((d) =>
+      `<li>${esc(d.label)}: this says <b>${esc(d.value)}</b>, #${d.other_rank} ${esc(d.other_title)} says <b>${esc(d.other_value)}</b></li>`).join("")}</ul></div>`;
+  }
+  return `<div class="box bad"><div class="t">Contradicts a more trustworthy source</div><ul>${ds.map((d) =>
+    `<li>${esc(d.label)}: this says <b>${esc(d.value)}</b>, but #${d.other_rank} ${esc(d.other_title)} says <b>${esc(d.other_value)}</b></li>`).join("")}</ul></div>`;
+}
+function markValue(sentence, value) {
+  const i = sentence.indexOf(value);
+  return i < 0 ? esc(sentence) : esc(sentence.slice(0, i)) + `<mark>${esc(value)}</mark>` + esc(sentence.slice(i + value.length));
+}
+function disputeBox(d, hits) {
+  const byRank = new Map(hits.map((h, i) => [i + 1, h]));
+  const ctx = $("ctxOn").checked;
+  return `<div class="panel dispute">
+    <h4>⚠ The results disagree on the ${esc(d.label)}${d.topic ? `: <i>${esc(d.topic)}</i>` : ""}${ctx ? ` · trust <b>${esc(d.claims[0].text)}</b>` : ""}</h4>
+    <div class="hint">Same topic, same country, different value. ${ctx
+      ? "All claims are about the same fact, so the most trustworthy source wins on country, validity, freshness, source, owner and uploader, not on how well it matches your words."
+      : "Context ranking is off, so there are no trust signals: the claims are only ordered by text relevance. Turn it on to see which one to trust."}</div>
+    ${d.claims.map((c, i) => {
+      const h = byRank.get(c.rank) || { reasons: [], warnings: [] };
+      const verdict = !ctx ? `result #${c.rank}`
+        : i === 0 ? `✓ Most trustworthy${h.reasons.length ? ": " + esc(h.reasons.slice(0, 4).join(", ")) : ""}`
+        : (h.warnings.length ? "⚠ " + esc(h.warnings.join(", ")) : "⚠ less trustworthy than #" + d.claims[0].rank);
+      return `<div class="claim ${i === 0 ? "best" : ""}"><span class="rank">#${c.rank}</span><span class="v">${esc(c.text)}</span>
+        <div><b>${esc(c.title)}</b><q>${markValue(c.sentence, c.text)}</q><div class="verdict">${verdict}</div></div></div>`;
+    }).join("")}
   </div>`;
 }
 let searchSeq = 0;
@@ -403,9 +456,9 @@ async function runSearch() {
   const q = $("q").value.trim();
   if (!q) { $("results").innerHTML = ""; return; }
   try {
-    const hits = await api("/api/search", { query: q, ...currentConfig() });
+    const { hits, disputes } = await api("/api/search", { query: q, ...currentConfig() });
     if (seq !== searchSeq) return;
-    $("results").innerHTML = hits.length ? hits.map(hitCard).join("") : '<div class="note">No results you are allowed to see.</div>';
+    $("results").innerHTML = hits.length ? disputes.map((d) => disputeBox(d, hits)).join("") + hits.map(hitCard).join("") : '<div class="note">No results you are allowed to see.</div>';
   } catch (e) { $("results").innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
 }
 $("searchBtn").onclick = runSearch;
@@ -439,7 +492,8 @@ function compareRows(hits, other) {
       mv = d > 0 ? `<span class="move up">▲${d}</span>` : d < 0 ? `<span class="move down">▼${-d}</span>` : '<span class="move same">=</span>';
     }
     if (other === hits) mv = "";
-    const warn = h.warnings.length ? `<div class="hint" style="color:var(--warn)">⚠ ${h.warnings.map(esc).join("; ")}</div>` : "";
+    const warn = (h.warnings.length ? `<div class="hint" style="color:var(--warn)">⚠ ${h.warnings.map(esc).join("; ")}</div>` : "")
+      + ((h.disagreements || []).length ? `<div class="hint" style="color:${h.disagreements[0].most_trusted ? "var(--good)" : "var(--bad)"}">${h.disagreements[0].most_trusted ? "✓ most trustworthy on" : "≠"} ${h.disagreements.map((d) => `${esc(d.value)} vs #${d.other_rank} ${esc(d.other_value)}`).join("; ")}</div>` : "");
     return `<div class="row"><span class="rank">${i + 1}</span><div class="t"><b>${esc(h.title)}</b>
       <div class="hint">${esc(h.country || "all countries")} · ${esc(h.source || "?")} · updated ${esc(h.updated_at ? h.updated_at.slice(0, 10) : "?")} · score ${h.score.toFixed(4)}</div>${warn}</div>${mv}</div>`;
   }).join("") || '<div class="hint">No results.</div>';
@@ -452,7 +506,8 @@ async function runCompare() {
   $("colAName").textContent = "A: " + describe(a);
   $("colBName").textContent = "B: " + describe(b);
   try {
-    const [ha, hb] = await Promise.all([api("/api/search", { query: q, ...a }), api("/api/search", { query: q, ...b })]);
+    const [ra, rb] = await Promise.all([api("/api/search", { query: q, ...a }), api("/api/search", { query: q, ...b })]);
+    const ha = ra.hits, hb = rb.hits;
     $("colA").innerHTML = compareRows(ha, ha);
     $("colB").innerHTML = compareRows(hb, ha);
   } catch (e) { $("colA").innerHTML = `<div class="note err">${esc(e.message)}</div>`; $("colB").innerHTML = ""; }
@@ -462,8 +517,8 @@ $("cq").addEventListener("keydown", (e) => { if (e.key === "Enter") runCompare()
 
 // ---------- documents ----------
 async function loadDocs() {
-  const { documents, total_in_system } = await api("/api/documents");
-  $("docsNote").innerHTML = `You can read <b>${documents.length}</b> of the <b>${total_in_system}</b> documents in the system. Row-level security in PostgreSQL enforces this for every query, including search.`;
+  const { documents } = await api("/api/documents");
+  $("docsNote").innerHTML = `You can read <b>${documents.length}</b> documents. Everything else is invisible to you: row-level security in PostgreSQL enforces this for every query, including search. Switch user to see the list change.`;
   $("docsTable").innerHTML = `<tr><th>Title</th><th>Country</th><th>Site</th><th>Dept</th><th>Source</th><th>Owner</th><th>Updated</th><th>Valid</th><th>Tags</th><th>Uploaded by</th><th>Groups</th></tr>` +
     documents.map((d) => `<tr><td>${esc(d.title)}</td><td>${esc(d.country || "all")}</td><td>${esc(d.location || "")}</td><td>${esc(d.department || "")}</td><td>${esc(d.source || "")}</td>
       <td>${esc(d.owner || "—")}</td><td>${esc(d.updated_at ? d.updated_at.slice(0, 10) : "")}</td><td>${esc((d.valid_from || d.valid_until) ? `${d.valid_from || "…"} → ${d.valid_until || "…"}` : "")}</td>
@@ -523,9 +578,10 @@ document.querySelectorAll("#tabs button").forEach((b) => b.onclick = () => {
   if (b.dataset.tab === "docs") loadDocs();
 });
 $("resetBtn").onclick = async () => {
-  if (!confirm("Delete all uploads and notifications and reload the demo data?")) return;
+  const password = prompt("Reset deletes all uploads and notifications and reloads the demo data.\nAdmin password:");
+  if (!password) return;
   $("resetBtn").disabled = true;
-  try { await api("/api/admin/reset", {}); await api("/api/logout", {}); showLogin(); } catch (e) { alert(e.message); }
+  try { await api("/api/admin/reset", { password }); await api("/api/logout", {}); showLogin(); } catch (e) { alert(e.message); }
   $("resetBtn").disabled = false;
 };
 

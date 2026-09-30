@@ -15,6 +15,8 @@ import psycopg
 from psycopg.rows import dict_row
 
 from kb.config import Settings
+from kb.conflicts import annotate
+from kb.context import CONTRADICTED, MIN_FACTOR
 from kb.context import SIGNALS, UserContext, assess
 from kb.db import user_session
 from kb.embeddings import Embedder, Reranker, to_pgvector
@@ -53,8 +55,10 @@ class SearchHit:
     rerank_score: float | None = None  # cross-encoder relevance, 0..1
     rerank_rank: int | None = None
     relevance: float | None = None  # score before context ranking
+    trust: float = 1.0  # context factor: score = relevance * trust
     reasons: list[str] = field(default_factory=list)  # why it applies / can be trusted
     warnings: list[str] = field(default_factory=list)  # why to be careful
+    disagreements: list[dict] = field(default_factory=list)  # facts where other results say otherwise (kb.conflicts)
 
 
 @dataclass
@@ -133,6 +137,7 @@ class Retriever:
         context_ranking: bool | None = None,
         signals: Collection[str] = SIGNALS,
         rerank: bool | None = None,
+        detect_conflicts: bool = True,
     ) -> list[SearchHit]:
         """context_ranking and rerank override the settings per request; signals picks which context signals count.
 
@@ -194,10 +199,11 @@ class Retriever:
             rerank_rank, rerank_score = reranked.get(cid, (None, None))
             row = rows[cid]
             score = fused[cid]
-            reasons, warnings = [], []
+            reasons, warnings, trust = [], [], 1.0
             if use_context:
                 assessment = assess(row, user, today, signals)
-                score *= assessment.factor
+                trust = assessment.factor
+                score *= trust
                 reasons, warnings = assessment.reasons, assessment.warnings
             hits.append(
                 SearchHit(
@@ -212,11 +218,34 @@ class Retriever:
                     relevance=fused[cid],
                     reasons=reasons,
                     warnings=warnings,
+                    trust=trust,
                     **row,
                 )
             )
         hits.sort(key=lambda h: (-h.score, h.chunk_id))
-        return hits[:top_k]
+        if detect_conflicts and use_context and "conflicts" in signals:
+            self._demote_contradicted(hits, query)
+        hits = hits[:top_k]
+        if detect_conflicts:
+            annotate(hits, query)
+        return hits
+
+    @staticmethod
+    def _demote_contradicted(hits: list[SearchHit], query: str) -> None:
+        """A result that contradicts a more trustworthy one loses trust, with the reason spelled out."""
+        annotate(hits, query)
+        for hit in hits:
+            against = [d for d in hit.disagreements if not d["most_trusted"]]
+            if against:
+                trust = max(MIN_FACTOR, hit.trust + CONTRADICTED)
+                hit.score = hit.score / hit.trust * trust
+                hit.trust = trust
+                d = against[0]
+                hit.warnings.append(f"contradicts a more trustworthy source on the {d['label']} "
+                                    f"({d['value']} vs {d['other_value']})")
+        for hit in hits:
+            hit.disagreements = []
+        hits.sort(key=lambda h: (-h.score, h.chunk_id))
 
     def _user_context(self, user_id: int) -> UserContext:
         # Trusted read on the owner connection: the profile of the authenticated user only.

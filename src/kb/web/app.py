@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from kb import rbac
+from kb.conflicts import find_disputes
 from kb.config import Settings
 from kb.context import SIGNALS
 from kb.db import connect, init_schema, user_session
@@ -36,6 +37,8 @@ SEED = DATA / "sample" / "seed.json"
 UPLOAD_EXAMPLES = DATA / "upload_examples"
 COOKIE = "kb_session"
 SECRET = (os.environ.get("KB_SESSION_SECRET") or secrets.token_hex(32)).encode()
+# The demo login has no passwords, so the destructive reset also needs this. Unset = reset disabled.
+ADMIN_PASSWORD = os.environ.get("KB_ADMIN_PASSWORD", "")
 
 settings = Settings.from_env()
 embedder = None
@@ -90,6 +93,10 @@ class Login(BaseModel):
     email: str
 
 
+class ResetRequest(BaseModel):
+    password: str = ""
+
+
 class Filters(BaseModel):
     country: str | None = None
     department: str | None = None
@@ -105,6 +112,7 @@ class SearchRequest(BaseModel):
     mode: Literal["bm25", "vector", "hybrid"] | None = None
     context_ranking: bool = True
     rerank: bool = False
+    detect_conflicts: bool = True
     signals: list[str] = list(SIGNALS)
     filters: Filters = Filters()
 
@@ -190,10 +198,12 @@ def search(req: SearchRequest, uid: int = Depends(current_user), kb: KnowledgeBa
         hits = kb.search(
             uid, req.query, req.top_k, req.mode, SearchFilters(**req.filters.model_dump()),
             context_ranking=req.context_ranking, signals=signals, rerank=req.rerank,
+            detect_conflicts=req.detect_conflicts,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return [h.__dict__ for h in hits]
+    disputes = find_disputes(hits, req.query) if req.detect_conflicts else []
+    return {"hits": [h.__dict__ for h in hits], "disputes": [d.as_dict() for d in disputes]}
 
 
 @app.get("/api/documents")
@@ -211,8 +221,8 @@ def documents(uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_c
         )
         cols = [c.name for c in cur.description]
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-    total = kb.conn.execute("SELECT count(*) FROM kb.documents").fetchone()[0]
-    return {"documents": rows, "total_in_system": total}
+    # No total count: how many documents exist that you cannot read is itself a leak.
+    return {"documents": rows}
 
 
 def _slug(text: str) -> str:
@@ -255,10 +265,14 @@ def read_notification(notification_id: int, uid: int = Depends(current_user), kb
 
 
 @app.post("/api/admin/reset")
-def reset(uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn)):
-    """Admins only: wipe everything and load the demo data again."""
+def reset(body: ResetRequest, uid: int = Depends(current_user), kb: KnowledgeBase = Depends(kb_conn)):
+    """Admins only, with the admin password: wipe everything and load the demo data again."""
     if not rbac.is_admin(kb.conn, uid):
         raise HTTPException(403, "admins only")
+    if not ADMIN_PASSWORD:
+        raise HTTPException(403, "reset is disabled on this server (KB_ADMIN_PASSWORD is not set)")
+    if not hmac.compare_digest(body.password.encode(), ADMIN_PASSWORD.encode()):
+        raise HTTPException(403, "wrong admin password")
     with kb.conn.transaction():
         kb.conn.execute("TRUNCATE kb.notifications, kb.similarity_alerts, kb.document_groups, kb.chunks, "
                         "kb.documents, kb.group_members, kb.groups, kb.users RESTART IDENTITY CASCADE")

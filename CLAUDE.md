@@ -58,11 +58,11 @@ Direction so far: a trusted knowledge layer for SD Worx employees. Each feature 
 - Near-duplicate alerts on upload. The uploader, the other document's uploader and the group managers get notified. Covers the "Detect" inspiration area (duplicated, outdated knowledge).
 - Access control. Users only find documents shared with their groups. This is also what the Aikido audit checks (p. 6).
 - Context-aware ranking that explains itself (`src/kb/context.py`). Documents carry country, location, department, language, tags, a validity period (`valid_from`/`valid_until`) and a snapshot of the uploader's position. Users have a profile (country, location, department, position). Results that apply to the user move up, and each hit lists reasons ("applies to your country (BE)", "official policy document") and warnings ("expired on 2024-12-31", "no accountable owner", "applies to NL, you work in BE"). Answers "What is current?", "What applies in this context?" and "Which answer should a person trust?". This is the p. 5 example friction (recently updated / no owner / other country) made visible.
-- TODO: the one "moment of doubt" for the demo is not chosen yet. Candidate: contradiction detection, where same-topic documents give different answers (the sample data has an 85% vs 92% holiday pay case). The current alerts do not catch this: those two docs score about 0.3 word overlap and 0.6 cosine, below the 0.5 and 0.9 thresholds.
+- Where results disagree (`src/kb/conflicts.py`): the "moment of doubt" of the demo. Facts are extracted from the results and compared; the UI shows 92% / 93% / 85% side by side with the quoted sentences and says which to trust and why. Covers "Detect: conflicting knowledge" and "Which answer should a person trust?".
 
 ## Status
 
-Working and tested (51 tests, `pytest` against Postgres with pgvector):
+Working and tested (62 tests, `pytest` against Postgres with pgvector):
 
 - `python -m kb init | seed | search | notifications | ingest | embed`. `seed` loads demo users (anna, bram, noor, admin at example.com), groups and the synthetic documents in `data/sample/`.
 - Search filters (`SearchFilters`, CLI `--country --department --source --language --tag --valid-on`) run in SQL before top-k and under RLS.

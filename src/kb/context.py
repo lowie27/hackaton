@@ -29,7 +29,9 @@ STALE_DAYS = 3 * 365
 MIN_FACTOR = 0.1
 
 # Signal names, so callers (the UI) can switch individual signals off.
-SIGNALS = ("country", "department", "location", "validity", "freshness", "source", "owner", "uploader")
+SIGNALS = ("country", "department", "location", "validity", "freshness", "source", "owner", "uploader", "conflicts")
+# Applied by the retriever after kb.conflicts compares the results with each other.
+CONTRADICTED = -0.4
 
 
 @dataclass

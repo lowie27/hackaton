@@ -6,6 +6,7 @@ Tectonic Hackathon 2026, SD Worx case. The knowledge layer behind a search UI:
 - **Rerank for accuracy.** After fusion, a cross-encoder (`jinaai/jina-reranker-v2-base-multilingual`, local via fastembed) reads the question together with each of the top 20 candidates and re-scores them. The first pass is fast but judges words or vectors separately; the cross-encoder judges whether the passage actually answers the question. It only sees the shortlist (after RLS), so it adds accuracy without scanning the corpus. Each hit shows its rerank rank and score.
 - **Near-duplicate alerts.** Each upload is compared with all existing documents (term overlap, plus embedding similarity when vectors are on). The uploader, the uploader of the other document and the group managers get a notification. *"Detect: conflicting, duplicated, missing or outdated knowledge."*
 - **Context-aware ranking that explains itself.** Documents carry country, site, department, language, tags, a validity period and a snapshot of the uploader's position; users have a profile. Results that apply to the person asking move up, and every hit lists its reasons ("applies to your country (BE)", "official policy document") and warnings ("expired on 2024-12-31", "no accountable owner", "applies to NL, you work in BE"). Hard filters (country, department, source, language, tags, valid on a date) run in SQL before top-k. *"What is current? Which answer should a person trust?"*
+- **Where results disagree.** Facts (percentages, euro amounts, numbers of days/weeks/months/years) are extracted from every result and compared: same kind of fact, sentences about the same thing, same country (or global). When the values differ, the UI shows a box above the results with every value, which document says it, the quoted sentence, and which one to trust: the claim from the most trustworthy source (context signals), not the best text match. A result that contradicts a more trustworthy one loses 40% with the warning "contradicts a more trustworthy source on the amount (EUR 129 vs EUR 150)". Different countries are never compared (BE 92% vs NL 8% is a different context). Rule-based, no language model: every dispute traces back to two quoted sentences. *"Detect: conflicting knowledge. Which answer should a person trust?"*
 - **RBAC.** Users see only documents shared with their groups (or uploaded by them). PostgreSQL row-level security enforces this, so hidden documents never reach a result list, not even as a slot in the top-k. Notifications never name a document the recipient cannot read.
 
 ## How to run
@@ -65,7 +66,7 @@ Pick a demo user, then:
 - **Sidebar**: switch the search logic (Keyword / Meaning / Hybrid), the cross-encoder rerank, context ranking on/off, each context signal on/off, hard filters, and what is displayed (metadata, match reasons, trust signals).
 - **Compare logics**: the same query side by side under two configurations (keyword vs hybrid, relevance only vs context-aware, ...) with rank changes marked.
 - **Upload**: add a document with metadata, duplicate check on/off. Two example documents that are not in the database (`data/upload_examples/`) fill the form: a unique one (bike leasing) and a near-copy of the home-working allowance policy that triggers a duplicate alert. **What I can see**: the documents RBAC lets you read. **Notifications**: duplicate alerts.
-- Admins get a *Reset demo data* button.
+- Admins get a *Reset demo data* button. It also asks for `KB_ADMIN_PASSWORD` (unset = reset disabled), because the demo login itself has no passwords.
 
 The first start downloads the embedding model (about 200 MB, cached in a volume). Set `KB_WEB_VECTOR_ENABLED=false` in `.env` for keyword-only. Behind a reverse proxy on an external `edge` network: `docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d`.
 
@@ -74,7 +75,7 @@ The login is a demo user picker, not real authentication: the selected user id i
 ### Run the tests
 
 ```bash
-pytest                          # 51 tests; needs the database from step 1
+pytest                          # 62 tests; needs the database from step 1
 ```
 
 ### Options
@@ -103,7 +104,8 @@ search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + 
                                    └─ chunks ORDER BY embedding <=> q  (pgvector, RLS-filtered)
                                    ─► RRF in Python
                                    ─► cross-encoder rerank of the top 20 (optional)
-                                   ─► context ranking (kb.context) ─► SearchHit list
+                                   ─► context ranking (kb.context)
+                                   ─► where results disagree (kb.conflicts), demote contradicted ─► SearchHit list
 ```
 
 | File | What |
@@ -118,6 +120,7 @@ search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + 
 | `sql/005_metadata.sql` | user profiles and document context metadata |
 | `src/kb/retriever.py` | hybrid retrieval, RRF, rerank, metadata filters |
 | `src/kb/context.py` | context-aware re-ranking with reasons and warnings |
+| `src/kb/conflicts.py` | finds where results disagree, and which claim to trust |
 | `src/kb/alerts.py` | duplicate detection, notifications |
 | `src/kb/rbac.py` | user/group admin and write permission checks |
 

@@ -54,9 +54,11 @@ class KnowledgeBase:
         context_ranking: bool | None = None,
         signals: Collection[str] = SIGNALS,
         rerank: bool | None = None,
+        detect_conflicts: bool = True,
     ) -> list[SearchHit]:
         return self.retriever.search(
-            user_id, query, top_k, mode, filters, context_ranking=context_ranking, signals=signals, rerank=rerank
+            user_id, query, top_k, mode, filters,
+            context_ranking=context_ranking, signals=signals, rerank=rerank, detect_conflicts=detect_conflicts,
         )
 
     def upload(

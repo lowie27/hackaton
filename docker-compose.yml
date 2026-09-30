@@ -27,6 +27,7 @@ services:
       KB_VECTOR_ENABLED: ${KB_WEB_VECTOR_ENABLED:-true}
       KB_RERANK_ENABLED: ${KB_WEB_RERANK_ENABLED:-true}
       KB_SESSION_SECRET: ${KB_SESSION_SECRET:-}
+      KB_ADMIN_PASSWORD: ${KB_ADMIN_PASSWORD:-}
     ports:
       - "127.0.0.1:${KB_WEB_PORT:-8000}:8000"
     volumes:
