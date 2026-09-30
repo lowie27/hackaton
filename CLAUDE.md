@@ -62,7 +62,7 @@ Direction so far: a trusted knowledge layer for SD Worx employees. Each feature 
 
 ## Status
 
-Working and tested (46 tests, `pytest` against Postgres with pgvector):
+Working and tested (47 tests, `pytest` against Postgres with pgvector):
 
 - `python -m kb init | seed | search | notifications | ingest | embed`. `seed` loads demo users (anna, bram, noor, admin at example.com), groups and the synthetic documents in `data/sample/`.
 - Search filters (`SearchFilters`, CLI `--country --department --source --language --tag --valid-on`) run in SQL before top-k and under RLS.
@@ -93,4 +93,4 @@ Not done:
 - Access control: groups with member/manager roles, enforced by Postgres row-level security (`sql/004_security.sql`). Write paths call checks in `src/kb/rbac.py`.
 - Near-duplicate alerts on upload notify the uploader, the other document's uploader and group managers (`src/kb/alerts.py`).
 - UI: built separately by a teammate on top of `kb.KnowledgeBase` (`src/kb/service.py`).
-- TODO: UI framework and API layer (authentication lives there).
+- Demo UI and API: FastAPI + a single static page in `src/kb/web/`, `docker compose up -d --build` (service `web`). Login is a demo user picker with an HMAC-signed cookie.

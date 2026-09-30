@@ -10,6 +10,7 @@ dependencies = [
 
 [project.optional-dependencies]
 vector = ["fastembed>=0.4"]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 dev = ["pytest>=8"]
 
 [build-system]
@@ -18,6 +19,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"kb.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

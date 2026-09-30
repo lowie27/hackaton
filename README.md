@@ -52,6 +52,24 @@ python -m kb --help             # all commands
 
 Demo users: `admin@`, `anna@`, `bram@`, `noor@example.com` (see `data/sample/seed.json`).
 
+### Web UI (demo)
+
+```bash
+docker compose up -d --build   # database + web UI on http://localhost:8000
+```
+
+Pick a demo user, then:
+
+- **Search**: results with *why it matched* (keyword terms, meaning similarity), metadata, and green *why you can rely on it* / amber *be careful* signals.
+- **Sidebar**: switch the search logic (Keyword / Meaning / Hybrid), context ranking on/off, each context signal on/off, hard filters, and what is displayed (metadata, match reasons, trust signals).
+- **Compare logics**: the same query side by side under two configurations (keyword vs hybrid, relevance only vs context-aware, ...) with rank changes marked.
+- **Upload**: add a document with metadata, duplicate check on/off. **What I can see**: the documents RBAC lets you read. **Notifications**: duplicate alerts.
+- Admins get a *Reset demo data* button.
+
+The first start downloads the embedding model (about 200 MB, cached in a volume). Set `KB_WEB_VECTOR_ENABLED=false` in `.env` for keyword-only. Behind a reverse proxy on an external `edge` network: `docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d`.
+
+The login is a demo user picker, not real authentication: the selected user id is kept in an HMAC-signed, HttpOnly cookie (`KB_SESSION_SECRET`), and every endpoint takes the user from that cookie, never from the request.
+
 ### Run the tests
 
 ```bash
@@ -91,6 +109,7 @@ search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + 
 | `sql/004_security.sql` | `kb_app` role, grants, row-level security policies |
 | `sql/optional/vector.sql` | pgvector columns + HNSW indexes (only when vectors are on) |
 | `src/kb/service.py` | **`KnowledgeBase`: the API for the UI** |
+| `src/kb/web/` | FastAPI JSON API + single-page demo UI |
 | `sql/005_metadata.sql` | user profiles and document context metadata |
 | `src/kb/retriever.py` | hybrid retrieval, RRF, metadata filters |
 | `src/kb/context.py` | context-aware re-ranking with reasons and warnings |
@@ -123,6 +142,8 @@ The API layer must authenticate the user and pass *their* id. It must never take
 Document metadata comes from frontmatter (`country, location, department, language, tags, valid_from, valid_until, source, owner, updated_at`) or the `meta` dict of `Document`. Set `KB_CONTEXT_RANKING=false` for pure relevance ranking.
 
 ## Unfinished / next
+
+- The web login is a demo user picker. Production needs real SSO (e.g. Entra ID) in front of it.
 
 - Context weights in `src/kb/context.py` are hand-picked, not tuned on real queries.
 

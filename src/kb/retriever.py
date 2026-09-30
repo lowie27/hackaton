@@ -13,7 +13,9 @@ import psycopg
 from psycopg.rows import dict_row
 
 from kb.config import Settings
-from kb.context import UserContext, assess
+from collections.abc import Collection
+
+from kb.context import SIGNALS, UserContext, assess
 from kb.db import user_session
 from kb.embeddings import Embedder, to_pgvector
 
@@ -119,7 +121,11 @@ class Retriever:
         mode: SearchMode | None = None,
         filters: SearchFilters | None = None,
         today: date | None = None,
+        context_ranking: bool | None = None,
+        signals: Collection[str] = SIGNALS,
     ) -> list[SearchHit]:
+        """context_ranking overrides the setting per request; signals picks which context signals count."""
+        use_context = self.settings.context_ranking if context_ranking is None else context_ranking
         mode = mode or ("hybrid" if self.settings.vector_enabled else "bm25")
         if mode not in ("bm25", "vector", "hybrid"):
             raise ValueError(f"unknown search mode: {mode}")
@@ -150,7 +156,7 @@ class Retriever:
             # Context ranking looks at the whole candidate pool, so a relevant
             # document for the user's country can overtake one for another country.
             candidates = sorted(fused, key=lambda cid: (-fused[cid], cid))
-            if not self.settings.context_ranking:
+            if not use_context:
                 candidates = candidates[:top_k]
             rows = self._load(candidates)
 
@@ -161,8 +167,8 @@ class Retriever:
             row = rows[cid]
             score = fused[cid]
             reasons, warnings = [], []
-            if self.settings.context_ranking:
-                assessment = assess(row, user, today)
+            if use_context:
+                assessment = assess(row, user, today, signals)
                 score *= assessment.factor
                 reasons, warnings = assessment.reasons, assessment.warnings
             hits.append(

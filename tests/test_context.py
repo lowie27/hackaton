@@ -77,3 +77,11 @@ def test_factor_never_reaches_zero():
     worst = doc(country="NL", department="HR", owner=None, source="teams",
                 updated_at=date(2010, 1, 1), valid_until=date(2011, 1, 1))
     assert assess(worst, BRAM, TODAY).factor == context.MIN_FACTOR
+
+
+def test_signals_can_be_switched_off_one_by_one():
+    worst = doc(country="NL", owner=None, source="teams", valid_until=date(2020, 1, 1), updated_at=date(2010, 1, 1))
+    assert assess(worst, BRAM, TODAY, signals=()).adjustment == 0
+    only_country = assess(worst, BRAM, TODAY, signals=("country",))
+    assert only_country.warnings == ["applies to NL, you work in BE"]
+    assert only_country.adjustment == context.COUNTRY_OTHER

@@ -3,16 +3,21 @@
     {"email": "admin@example.com", "name": "Demo Admin", "admin": true},
     {"email": "anna@example.com", "name": "Anna (Payroll BE lead)", "country": "BE", "location": "Antwerp", "department": "Payroll", "position": "Payroll BE lead"},
     {"email": "bram@example.com", "name": "Bram (Payroll BE consultant)", "country": "BE", "location": "Antwerp", "department": "Payroll", "position": "Payroll consultant"},
-    {"email": "noor@example.com", "name": "Noor (Payroll NL lead)", "country": "NL", "location": "Utrecht", "department": "Payroll", "position": "Payroll NL lead"}
+    {"email": "noor@example.com", "name": "Noor (Payroll NL lead)", "country": "NL", "location": "Utrecht", "department": "Payroll", "position": "Payroll NL lead"},
+    {"email": "eva@example.com", "name": "Eva (HR business partner)", "country": "BE", "location": "Ghent", "department": "HR", "position": "HR business partner"}
   ],
   "groups": {
     "payroll-be": {"managers": ["anna@example.com"], "members": ["bram@example.com"]},
-    "payroll-nl": {"managers": ["noor@example.com"]}
+    "payroll-nl": {"managers": ["noor@example.com"]},
+    "all-staff": {"managers": ["admin@example.com"], "members": ["anna@example.com", "bram@example.com", "noor@example.com", "eva@example.com"]}
   },
   "documents": [
     {"file": "be_holiday_pay_2019.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
     {"file": "nl_holiday_allowance.md", "uploader": "noor@example.com", "groups": ["payroll-nl"]},
     {"file": "be_holiday_pay_2025.md", "uploader": "anna@example.com", "groups": ["payroll-be"]},
-    {"file": "be_holiday_pay_teams_copy.md", "uploader": "bram@example.com", "groups": ["payroll-be"]}
+    {"file": "be_holiday_pay_teams_copy.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
+    {"file": "be_holiday_pay_nl.md", "uploader": "anna@example.com", "groups": ["payroll-be"]},
+    {"file": "antwerp_payroll_calendar.md", "uploader": "bram@example.com", "groups": ["payroll-be"]},
+    {"file": "hr_leave_principles.md", "uploader": "admin@example.com", "groups": ["all-staff"]}
   ]
 }

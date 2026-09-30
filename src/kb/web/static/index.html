@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trusted Knowledge</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #637083; --line: #e2e6ec;
+  --accent: #0b6bcb; --accent-soft: #e6f0fb; --good: #1f7a45; --good-soft: #e5f4ea;
+  --warn: #9a5b00; --warn-soft: #fdf1dc; --bad: #b3261e; --bad-soft: #fbe7e6;
+  --chip: #eef1f5; --shadow: 0 1px 2px rgba(20,30,50,.06), 0 2px 8px rgba(20,30,50,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11151b; --panel: #1a2029; --ink: #e6eaf0; --muted: #98a3b3; --line: #2b3440;
+    --accent: #5aa6f0; --accent-soft: #1b2e44; --good: #6fcf97; --good-soft: #17301f;
+    --warn: #f2b35a; --warn-soft: #36290f; --bad: #f28b82; --bad-soft: #3a1c1a;
+    --chip: #252d38; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+button, input, select, textarea { font: inherit; color: inherit; }
+header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 16px; margin: 0; }
+header .sub { color: var(--muted); font-size: 13px; }
+header .spacer { flex: 1; }
+.userchip { display: flex; gap: 8px; align-items: center; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; }
+.layout { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; padding: 12px 16px; } }
+aside, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+aside { padding: 14px; align-self: start; position: sticky; top: 64px; max-height: calc(100vh - 80px); overflow: auto; }
+@media (max-width: 900px) { aside { position: static; max-height: none; } }
+aside h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 16px 0 6px; }
+aside h3:first-child { margin-top: 0; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { flex: 1; padding: 6px 4px; border: 0; background: transparent; cursor: pointer; }
+.seg button.on { background: var(--accent); color: #fff; }
+.seg button:disabled { opacity: .4; cursor: not-allowed; }
+label.tog { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; cursor: pointer; }
+label.tog input { margin-top: 3px; }
+label.tog small { display: block; color: var(--muted); font-size: 12px; }
+.field { display: flex; flex-direction: column; gap: 3px; margin: 6px 0; }
+.field span { font-size: 12px; color: var(--muted); }
+input[type=text], input[type=date], input[type=number], select, textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); }
+textarea { min-height: 140px; resize: vertical; }
+.btn { padding: 8px 14px; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+.btn.danger { border-color: var(--bad); background: transparent; color: var(--bad); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 14px; flex-wrap: wrap; }
+.tabs button { padding: 9px 14px; border: 0; background: transparent; cursor: pointer; border-bottom: 2px solid transparent; color: var(--muted); }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.badge { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--bad); color: #fff; font-size: 11px; text-align: center; }
+.searchbar { display: flex; gap: 8px; margin-bottom: 12px; }
+.searchbar input { flex: 1; font-size: 15px; padding: 10px 12px; }
+.hint { color: var(--muted); font-size: 13px; }
+.examples button { border: 1px dashed var(--line); background: transparent; border-radius: 999px; padding: 3px 10px; margin: 2px; cursor: pointer; color: var(--muted); }
+.hit { padding: 14px; margin-bottom: 10px; }
+.hit .top { display: flex; gap: 10px; align-items: baseline; }
+.rank { font-weight: 700; color: var(--muted); min-width: 22px; }
+.hit h4 { margin: 0; font-size: 15px; flex: 1; }
+.score { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 0; }
+.chip { background: var(--chip); padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+.chip.k { color: var(--muted); }
+.why { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.why b { color: var(--ink); font-weight: 600; }
+.signals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+@media (max-width: 700px) { .signals { grid-template-columns: 1fr; } }
+.box { border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.box.good { background: var(--good-soft); color: var(--good); }
+.box.warn { background: var(--warn-soft); color: var(--warn); }
+.box ul { margin: 2px 0 0; padding-left: 18px; }
+.box .t { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.snippet { margin-top: 8px; font-size: 13px; color: var(--ink); opacity: .85; white-space: pre-wrap; }
+.factor { font-weight: 600; }
+.factor.up { color: var(--good); } .factor.down { color: var(--bad); }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 900px) { .compare { grid-template-columns: 1fr; } }
+.col { padding: 12px; }
+.col h4 { margin: 0 0 8px; }
+.row { display: flex; gap: 8px; padding: 8px 6px; border-top: 1px solid var(--line); align-items: flex-start; }
+.row .t { flex: 1; }
+.move { font-size: 12px; font-weight: 700; min-width: 40px; text-align: right; }
+.move.up { color: var(--good); } .move.down { color: var(--bad); } .move.new { color: var(--accent); } .move.same { color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.tablewrap { overflow-x: auto; }
+.users { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.user { padding: 14px; cursor: pointer; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; }
+.user:hover { border-color: var(--accent); }
+.user b { display: block; font-size: 15px; }
+.login { max-width: 900px; margin: 40px auto; padding: 0 16px; }
+.note { padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); margin-bottom: 12px; font-size: 13px; }
+.err { background: var(--bad-soft); color: var(--bad); }
+.formgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 12px; }
+@media (max-width: 700px) { .formgrid { grid-template-columns: 1fr; } }
+.notif { padding: 10px 12px; margin-bottom: 8px; display: flex; gap: 10px; align-items: flex-start; }
+.notif.unread { border-left: 3px solid var(--accent); }
+.notif .m { flex: 1; }
+.howto ol li { margin-bottom: 6px; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Trusted Knowledge</h1>
+    <div class="sub">Find it. Understand it. Trust it. SD Worx case demo</div>
+  </div>
+  <div class="spacer"></div>
+  <div id="whoami" class="userchip hidden"></div>
+</header>
+
+<div id="loginView" class="login hidden">
+  <h2>Pick a demo user</h2>
+  <p class="hint">Each user has a country, site, department and groups. Search results, visible documents and notifications change with who you are.</p>
+  <div id="userList" class="users"></div>
+</div>
+
+<div id="appView" class="layout hidden">
+  <aside>
+    <h3>Search logic</h3>
+    <div class="seg" id="modeSeg">
+      <button data-mode="bm25">Keyword</button>
+      <button data-mode="vector">Meaning</button>
+      <button data-mode="hybrid">Hybrid</button>
+    </div>
+    <div class="hint" id="modeHint" style="margin-top:4px"></div>
+
+    <h3>Context ranking</h3>
+    <label class="tog"><input type="checkbox" id="ctxOn" checked>
+      <span><b>Rank by what applies to me</b><small>Off = pure text relevance</small></span></label>
+    <div id="signalList"></div>
+
+    <h3>Filters (hard, before ranking)</h3>
+    <label class="tog"><input type="checkbox" id="filtersOn"><span><b>Apply filters</b></span></label>
+    <div id="filterBox">
+      <div class="field"><span>Country (keeps documents for all countries)</span><select id="fCountry"></select></div>
+      <div class="field"><span>Department (keeps documents for all departments)</span><select id="fDepartment"></select></div>
+      <div class="field"><span>Source</span><select id="fSource"></select></div>
+      <div class="field"><span>Language</span><select id="fLanguage"></select></div>
+      <div class="field"><span>Tag</span><select id="fTag"></select></div>
+      <div class="field"><span>In force on</span><input type="date" id="fValidOn"></div>
+    </div>
+
+    <h3>Display</h3>
+    <label class="tog"><input type="checkbox" id="showMeta" checked><span><b>Show metadata</b></span></label>
+    <label class="tog"><input type="checkbox" id="showWhy" checked><span><b>Show why it matched</b></span></label>
+    <label class="tog"><input type="checkbox" id="showTrust" checked><span><b>Show trust signals</b></span></label>
+    <div class="field"><span>Results</span><input type="number" id="topK" min="1" max="50" value="8"></div>
+
+    <div id="adminBox" class="hidden">
+      <h3>Admin</h3>
+      <button class="btn danger small" id="resetBtn">Reset demo data</button>
+    </div>
+  </aside>
+
+  <main>
+    <div class="tabs" id="tabs">
+      <button data-tab="search" class="on">Search</button>
+      <button data-tab="compare">Compare logics</button>
+      <button data-tab="upload">Upload</button>
+      <button data-tab="docs">What I can see</button>
+      <button data-tab="notes">Notifications <span id="noteBadge" class="badge hidden"></span></button>
+      <button data-tab="how">How it works</button>
+    </div>
+
+    <section id="tab-search">
+      <div class="searchbar">
+        <input type="text" id="q" placeholder="Ask something, e.g. double holiday pay" value="double holiday pay">
+        <button class="btn" id="searchBtn">Search</button>
+      </div>
+      <div class="examples hint">Try:
+        <button>double holiday pay</button><button>dubbel vakantiegeld</button><button>vakantiegeld</button>
+        <button>holiday pay calendar</button><button>who decides when documents disagree</button>
+      </div>
+      <div id="results" style="margin-top:12px"></div>
+    </section>
+
+    <section id="tab-compare" class="hidden">
+      <div class="searchbar">
+        <input type="text" id="cq" value="double holiday pay">
+        <select id="preset" style="max-width:320px"></select>
+        <button class="btn" id="compareBtn">Compare</button>
+      </div>
+      <div class="note" id="presetNote"></div>
+      <div class="compare">
+        <div class="panel col"><h4 id="colAName">A</h4><div id="colA"></div></div>
+        <div class="panel col"><h4 id="colBName">B</h4><div id="colB"></div></div>
+      </div>
+    </section>
+
+    <section id="tab-upload" class="hidden">
+      <div class="panel" style="padding:14px">
+        <div class="note">Upload a document as the current user. Your position and department are stored from your profile, not from the form. Try pasting the 2025 policy with 93% instead of 92% to trigger a near-duplicate alert.</div>
+        <div class="field"><span>Title</span><input type="text" id="uTitle" placeholder="Holiday pay (copied from a Teams chat)"></div>
+        <div class="field"><span>Text</span><textarea id="uBody" placeholder="Paste the document text"></textarea></div>
+        <div class="formgrid">
+          <div class="field"><span>Source</span><select id="uSource"><option value="">-</option><option>policy</option><option>wiki</option><option>teams</option><option>email</option></select></div>
+          <div class="field"><span>Owner (accountable)</span><input type="text" id="uOwner"></div>
+          <div class="field"><span>Country (empty = all)</span><input type="text" id="uCountry" placeholder="BE"></div>
+          <div class="field"><span>Department</span><input type="text" id="uDepartment" placeholder="Payroll"></div>
+          <div class="field"><span>Site</span><input type="text" id="uLocation" placeholder="Antwerp"></div>
+          <div class="field"><span>Language</span><input type="text" id="uLanguage" placeholder="en"></div>
+          <div class="field"><span>Tags (comma separated)</span><input type="text" id="uTags" placeholder="holiday pay"></div>
+          <div class="field"><span>Last updated</span><input type="date" id="uUpdated"></div>
+          <div class="field"><span>Valid from</span><input type="date" id="uFrom"></div>
+          <div class="field"><span>Valid until</span><input type="date" id="uUntil"></div>
+        </div>
+        <div class="field"><span>Share with groups (only groups you belong to)</span><div id="uGroups"></div></div>
+        <label class="tog"><input type="checkbox" id="uDetect" checked><span><b>Check for near-duplicates</b><small>Notifies you, the other uploader and the group managers</small></span></label>
+        <button class="btn" id="uploadBtn">Upload</button>
+        <div id="uploadResult" style="margin-top:12px"></div>
+      </div>
+    </section>
+
+    <section id="tab-docs" class="hidden">
+      <div class="note" id="docsNote"></div>
+      <div class="panel tablewrap"><table id="docsTable"></table></div>
+    </section>
+
+    <section id="tab-notes" class="hidden">
+      <div id="notes"></div>
+    </section>
+
+    <section id="tab-how" class="hidden">
+      <div class="panel howto" style="padding:16px 20px">
+        <h3>Scenario</h3>
+        <p>A payroll consultant searches for double holiday pay and finds three versions: an official 2025 policy, a copy pasted from Teams with a different percentage, and an old intranet FAQ. Which one should they trust?</p>
+        <h3>The pipeline</h3>
+        <ol>
+          <li><b>Access control.</b> PostgreSQL row-level security only returns documents shared with your groups. Hidden documents never take a slot in the results. See <i>What I can see</i>.</li>
+          <li><b>Filters</b> (optional). Country, department, source, language, tag, in force on a date. Run in SQL before ranking.</li>
+          <li><b>Relevance.</b> <i>Keyword</i> = BM25 computed in SQL (shows matched terms). <i>Meaning</i> = multilingual embeddings in pgvector (Dutch queries find English documents). <i>Hybrid</i> fuses both rankings with reciprocal rank fusion.</li>
+          <li><b>Context ranking.</b> Each result is scored against who you are and how trustworthy it is. Every adjustment is a sentence you can read: green reasons, amber warnings. Switch each signal off in the sidebar to see its effect.</li>
+          <li><b>Duplicate detection</b> on upload. Near-copies notify the uploader, the other uploader and group managers, without naming documents they cannot read.</li>
+        </ol>
+        <h3>Context signals and weights</h3>
+        <table>
+          <tr><th>Signal</th><th>Up</th><th>Down</th></tr>
+          <tr><td>country</td><td>+30% your country</td><td>−50% another country</td></tr>
+          <tr><td>department</td><td>+20% your department</td><td>−20% another department</td></tr>
+          <tr><td>location</td><td>+10% your site</td><td></td></tr>
+          <tr><td>validity</td><td></td><td>−60% expired, −30% not yet valid</td></tr>
+          <tr><td>freshness</td><td>+20% updated within a year</td><td>−30% older than 3 years</td></tr>
+          <tr><td>source</td><td>+20% official policy</td><td>−10% Teams / email / chat</td></tr>
+          <tr><td>owner</td><td></td><td>−10% no accountable owner</td></tr>
+          <tr><td>uploader</td><td>+10% uploaded by a manager of its group</td><td></td></tr>
+        </table>
+        <p class="hint">Final score = relevance × (1 + sum of adjustments), never below 10% of relevance.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const SIGNAL_INFO = {
+  country: "Country matches yours",
+  department: "Department matches yours",
+  location: "Your office / site",
+  validity: "Still in force (valid from / until)",
+  freshness: "Recently updated",
+  source: "Official vs informal source",
+  owner: "Has an accountable owner",
+  uploader: "Uploaded by a group manager",
+};
+const PRESETS = {
+  context: { name: "Relevance only vs Context-aware", note: "Same search, same documents. Right side re-ranks by what applies to you and what can be trusted.",
+    a: { context_ranking: false }, b: { context_ranking: true } },
+  hybrid: { name: "Keyword (BM25) vs Hybrid", note: "Hybrid adds meaning-based matches: try the Dutch query 'dubbel vakantiegeld'.",
+    a: { mode: "bm25" }, b: { mode: "hybrid" } },
+  vector: { name: "Keyword vs Meaning", note: "Keyword needs shared words. Meaning finds paraphrases and other languages.",
+    a: { mode: "bm25" }, b: { mode: "vector" } },
+  filters: { name: "No filters vs Sidebar filters", note: "Right side applies the filters set in the sidebar (tick 'Apply filters').",
+    a: { filters: false }, b: { filters: true } },
+  trustonly: { name: "Context: only 'applies to me' vs only 'trust'", note: "Left uses country/department/site. Right uses validity/freshness/source/owner/uploader.",
+    a: { signals: ["country", "department", "location"] }, b: { signals: ["validity", "freshness", "source", "owner", "uploader"] } },
+};
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let me = null, mode = "bm25";
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail ? (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)) : res.statusText);
+  return data;
+}
+
+// ---------- login ----------
+async function showLogin() {
+  $("appView").classList.add("hidden"); $("whoami").classList.add("hidden"); $("loginView").classList.remove("hidden");
+  const users = await api("/api/users");
+  $("userList").innerHTML = users.map((u) => `
+    <button class="user" data-email="${esc(u.email)}">
+      <b>${esc(u.name)}</b>
+      <div class="hint">${esc(u.position || (u.is_admin ? "Administrator: sees everything" : ""))}</div>
+      <div class="chips">${u.country ? `<span class="chip">${esc(u.country)}</span>` : ""}${u.location ? `<span class="chip">${esc(u.location)}</span>` : ""}${u.department ? `<span class="chip">${esc(u.department)}</span>` : ""}</div>
+    </button>`).join("");
+  document.querySelectorAll(".user").forEach((b) => b.onclick = async () => { await api("/api/login", { email: b.dataset.email }); boot(); });
+}
+
+async function boot() {
+  try { me = await api("/api/me"); } catch { return showLogin(); }
+  $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
+  $("whoami").classList.remove("hidden");
+  $("whoami").innerHTML = `<span><b>${esc(me.name)}</b> <span class="hint">${esc([me.country, me.location, me.department].filter(Boolean).join(" · "))}</span></span>
+    <button class="btn ghost small" id="switchBtn">Switch user</button>`;
+  $("switchBtn").onclick = async () => { await api("/api/logout", {}); showLogin(); };
+  $("adminBox").classList.toggle("hidden", !me.is_admin);
+  mode = me.vector_enabled ? "hybrid" : "bm25";
+  renderMode();
+  $("uGroups").innerHTML = me.groups.length ? me.groups.map((g) => `<label class="tog"><input type="checkbox" value="${esc(g.name)}" checked> ${esc(g.name)} <span class="hint">(${esc(g.role)})</span></label>`).join("") : '<span class="hint">You are in no groups: the document stays private.</span>';
+  await loadDocs();
+  loadNotes();
+  runSearch();
+}
+
+// ---------- sidebar ----------
+function renderMode() {
+  document.querySelectorAll("#modeSeg button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.mode === mode);
+    b.disabled = b.dataset.mode !== "bm25" && !me.vector_enabled;
+  });
+  $("modeHint").textContent = me.vector_enabled ? "" : "Vector search is off on this server (KB_VECTOR_ENABLED).";
+}
+document.querySelectorAll("#modeSeg button").forEach((b) => b.onclick = () => { mode = b.dataset.mode; renderMode(); runSearch(); });
+$("signalList").innerHTML = Object.entries(SIGNAL_INFO).map(([k, v]) => `<label class="tog"><input type="checkbox" class="sig" value="${k}" checked><span>${esc(v)}<small>${k}</small></span></label>`).join("");
+["ctxOn", "filtersOn", "showMeta", "showWhy", "showTrust", "topK", "fCountry", "fDepartment", "fSource", "fLanguage", "fTag", "fValidOn"].forEach((id) => $(id).addEventListener("change", () => { if (id === "ctxOn") syncSignals(); runSearch(); }));
+document.addEventListener("change", (e) => { if (e.target.classList.contains("sig")) runSearch(); });
+function syncSignals() { document.querySelectorAll(".sig").forEach((c) => c.disabled = !$("ctxOn").checked); }
+
+function fillSelect(id, values) {
+  const cur = $(id).value;
+  $(id).innerHTML = '<option value="">any</option>' + [...values].sort().map((v) => `<option>${esc(v)}</option>`).join("");
+  $(id).value = cur;
+}
+
+function filters() {
+  if (!$("filtersOn").checked) return {};
+  return { country: $("fCountry").value || null, department: $("fDepartment").value || null, source: $("fSource").value || null,
+    language: $("fLanguage").value || null, tags: $("fTag").value ? [$("fTag").value] : [], valid_on: $("fValidOn").value || null };
+}
+function currentConfig() {
+  return { mode, top_k: +$("topK").value || 8, context_ranking: $("ctxOn").checked,
+    signals: [...document.querySelectorAll(".sig:checked")].map((c) => c.value), filters: filters() };
+}
+
+// ---------- search ----------
+function pct(x) { return `${x >= 1 ? "+" : "−"}${Math.abs(Math.round((x - 1) * 100))}%`; }
+function hitCard(h, i) {
+  const showMeta = $("showMeta").checked, showWhy = $("showWhy").checked, showTrust = $("showTrust").checked;
+  const factor = h.relevance ? h.score / h.relevance : 1;
+  const why = [];
+  if (h.bm25_rank) why.push(`<b>keyword #${h.bm25_rank}</b> (BM25 ${h.bm25_score.toFixed(2)}: ${h.matched_terms.map(esc).join(", ")})`);
+  if (h.vector_rank) why.push(`<b>meaning #${h.vector_rank}</b> (cosine ${h.vector_score.toFixed(2)})`);
+  const meta = [
+    ["country", h.country || "all"], ["site", h.location], ["dept", h.department], ["source", h.source], ["owner", h.owner || "none"],
+    ["updated", h.updated_at ? h.updated_at.slice(0, 10) : "unknown"], ["valid", (h.valid_from || h.valid_until) ? `${h.valid_from || "…"} → ${h.valid_until || "…"}` : null],
+    ["lang", h.language], ["tags", (h.tags || []).join(", ")], ["uploaded by", h.uploader_position], ["groups", h.groups.join(", ") || "private"],
+  ].filter(([, v]) => v);
+  return `<div class="panel hit">
+    <div class="top"><span class="rank">${i + 1}</span><h4>${esc(h.title)}</h4>
+      <div class="score">score ${h.score.toFixed(4)}${h.relevance && Math.abs(factor - 1) > 1e-9 ? `<br>relevance ${h.relevance.toFixed(4)} <span class="factor ${factor >= 1 ? "up" : "down"}">${pct(factor)}</span>` : ""}</div></div>
+    ${showMeta ? `<div class="chips">${meta.map(([k, v]) => `<span class="chip"><span class="k">${k}</span> ${esc(v)}</span>`).join("")}</div>` : ""}
+    ${showWhy ? `<div class="why">Matched: ${why.join(" · ") || "-"}</div>` : ""}
+    ${showTrust && (h.reasons.length || h.warnings.length) ? `<div class="signals">
+      ${h.reasons.length ? `<div class="box good"><div class="t">Why you can rely on it</div><ul>${h.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>` : "<div></div>"}
+      ${h.warnings.length ? `<div class="box warn"><div class="t">Be careful</div><ul>${h.warnings.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>` : ""}
+    </div>` : ""}
+    <div class="snippet">${esc(h.text.replace(/^SYNTHETIC.*\n+|^SYNTHETISCH.*\n+/m, ""))}</div>
+  </div>`;
+}
+let searchSeq = 0;
+async function runSearch() {
+  if (!me) return;
+  const seq = ++searchSeq;
+  const q = $("q").value.trim();
+  if (!q) { $("results").innerHTML = ""; return; }
+  try {
+    const hits = await api("/api/search", { query: q, ...currentConfig() });
+    if (seq !== searchSeq) return;
+    $("results").innerHTML = hits.length ? hits.map(hitCard).join("") : '<div class="note">No results you are allowed to see.</div>';
+  } catch (e) { $("results").innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
+}
+$("searchBtn").onclick = runSearch;
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+document.querySelectorAll(".examples button").forEach((b) => b.onclick = () => { $("q").value = b.textContent; runSearch(); });
+
+// ---------- compare ----------
+$("preset").innerHTML = Object.entries(PRESETS).map(([k, p]) => `<option value="${k}">${esc(p.name)}</option>`).join("");
+function presetNote() { $("presetNote").textContent = PRESETS[$("preset").value].note; }
+$("preset").onchange = () => { presetNote(); runCompare(); };
+presetNote();
+function configFor(over) {
+  const base = currentConfig();
+  const cfg = { ...base, ...over };
+  if (over.filters === false) cfg.filters = {};
+  if (over.filters === true) cfg.filters = base.filters;
+  if (over.signals) cfg.context_ranking = true;
+  if ((cfg.mode === "vector" || cfg.mode === "hybrid") && !me.vector_enabled) cfg.mode = "bm25";
+  return cfg;
+}
+function describe(cfg) {
+  const names = { bm25: "Keyword", vector: "Meaning", hybrid: "Hybrid" };
+  return `${names[cfg.mode]} · ${cfg.context_ranking ? "context on" : "relevance only"}${Object.values(cfg.filters).some((v) => v && v.length !== 0) ? " · filtered" : ""}`;
+}
+function compareRows(hits, other) {
+  const pos = new Map(other.map((h, i) => [h.chunk_id, i]));
+  return hits.map((h, i) => {
+    let mv = '<span class="move new">new</span>';
+    if (other !== hits && pos.has(h.chunk_id)) {
+      const d = pos.get(h.chunk_id) - i;
+      mv = d > 0 ? `<span class="move up">▲${d}</span>` : d < 0 ? `<span class="move down">▼${-d}</span>` : '<span class="move same">=</span>';
+    }
+    if (other === hits) mv = "";
+    const warn = h.warnings.length ? `<div class="hint" style="color:var(--warn)">⚠ ${h.warnings.map(esc).join("; ")}</div>` : "";
+    return `<div class="row"><span class="rank">${i + 1}</span><div class="t"><b>${esc(h.title)}</b>
+      <div class="hint">${esc(h.country || "all countries")} · ${esc(h.source || "?")} · updated ${esc(h.updated_at ? h.updated_at.slice(0, 10) : "?")} · score ${h.score.toFixed(4)}</div>${warn}</div>${mv}</div>`;
+  }).join("") || '<div class="hint">No results.</div>';
+}
+async function runCompare() {
+  const p = PRESETS[$("preset").value];
+  const q = $("cq").value.trim();
+  if (!q) return;
+  const a = configFor(p.a), b = configFor(p.b);
+  $("colAName").textContent = "A: " + describe(a);
+  $("colBName").textContent = "B: " + describe(b);
+  try {
+    const [ha, hb] = await Promise.all([api("/api/search", { query: q, ...a }), api("/api/search", { query: q, ...b })]);
+    $("colA").innerHTML = compareRows(ha, ha);
+    $("colB").innerHTML = compareRows(hb, ha);
+  } catch (e) { $("colA").innerHTML = `<div class="note err">${esc(e.message)}</div>`; $("colB").innerHTML = ""; }
+}
+$("compareBtn").onclick = runCompare;
+$("cq").addEventListener("keydown", (e) => { if (e.key === "Enter") runCompare(); });
+
+// ---------- documents ----------
+async function loadDocs() {
+  const { documents, total_in_system } = await api("/api/documents");
+  $("docsNote").innerHTML = `You can read <b>${documents.length}</b> of the <b>${total_in_system}</b> documents in the system. Row-level security in PostgreSQL enforces this for every query, including search.`;
+  $("docsTable").innerHTML = `<tr><th>Title</th><th>Country</th><th>Site</th><th>Dept</th><th>Source</th><th>Owner</th><th>Updated</th><th>Valid</th><th>Tags</th><th>Uploaded by</th><th>Groups</th></tr>` +
+    documents.map((d) => `<tr><td>${esc(d.title)}</td><td>${esc(d.country || "all")}</td><td>${esc(d.location || "")}</td><td>${esc(d.department || "")}</td><td>${esc(d.source || "")}</td>
+      <td>${esc(d.owner || "—")}</td><td>${esc(d.updated_at ? d.updated_at.slice(0, 10) : "")}</td><td>${esc((d.valid_from || d.valid_until) ? `${d.valid_from || "…"} → ${d.valid_until || "…"}` : "")}</td>
+      <td>${esc((d.tags || []).join(", "))}</td><td>${esc(d.uploader_position || "")}${d.uploader_is_manager ? " (manager)" : ""}</td><td>${esc(d.groups.join(", ") || "private")}</td></tr>`).join("");
+  const uniq = (f) => new Set(documents.flatMap(f).filter(Boolean));
+  fillSelect("fCountry", uniq((d) => [d.country])); fillSelect("fDepartment", uniq((d) => [d.department]));
+  fillSelect("fSource", uniq((d) => [d.source])); fillSelect("fLanguage", uniq((d) => [d.language])); fillSelect("fTag", uniq((d) => d.tags || []));
+}
+
+// ---------- notifications ----------
+async function loadNotes() {
+  const notes = await api("/api/notifications");
+  const unread = notes.filter((n) => !n.read_at).length;
+  $("noteBadge").textContent = unread; $("noteBadge").classList.toggle("hidden", !unread);
+  $("notes").innerHTML = notes.length ? notes.map((n) => `<div class="panel notif ${n.read_at ? "" : "unread"}"><div class="m">${esc(n.message)}<div class="hint">${esc(n.created_at.slice(0, 16).replace("T", " "))}</div></div>
+    ${n.read_at ? '<span class="hint">read</span>' : `<button class="btn ghost small" data-id="${n.id}">Mark read</button>`}</div>`).join("") : '<div class="note">No notifications.</div>';
+  document.querySelectorAll("#notes button[data-id]").forEach((b) => b.onclick = async () => { await api(`/api/notifications/${b.dataset.id}/read`, {}); loadNotes(); });
+}
+
+// ---------- upload ----------
+$("uploadBtn").onclick = async () => {
+  const val = (id) => $(id).value.trim() || null;
+  const body = { title: $("uTitle").value.trim(), body: $("uBody").value, detect_duplicates: $("uDetect").checked,
+    groups: [...document.querySelectorAll("#uGroups input:checked")].map((c) => c.value),
+    source: val("uSource"), owner: val("uOwner"), country: val("uCountry"), department: val("uDepartment"), location: val("uLocation"),
+    language: val("uLanguage"), tags: ($("uTags").value || "").split(",").map((t) => t.trim()).filter(Boolean),
+    updated_at: val("uUpdated"), valid_from: val("uFrom"), valid_until: val("uUntil") };
+  try {
+    const r = await api("/api/upload", body);
+    $("uploadResult").innerHTML = `<div class="note">Stored as document #${r.doc_id}.</div>` + (r.similar.length
+      ? `<div class="box warn"><div class="t">Looks similar to existing knowledge</div><ul>${r.similar.map((s) => `<li>${esc(s.title || "a document you don't have access to")}: ${s.lexical_score != null ? `text overlap ${Math.round(s.lexical_score * 100)}%` : ""}${s.vector_score != null ? ` meaning ${Math.round(s.vector_score * 100)}%` : ""}</li>`).join("")}</ul>Managers and the other uploader were notified.</div>`
+      : `<div class="hint">${body.detect_duplicates ? "No near-duplicates found." : "Duplicate check was off."}</div>`);
+    await loadDocs(); loadNotes(); runSearch();
+  } catch (e) { $("uploadResult").innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
+};
+
+// ---------- tabs & admin ----------
+document.querySelectorAll("#tabs button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "compare") runCompare();
+  if (b.dataset.tab === "notes") loadNotes();
+  if (b.dataset.tab === "docs") loadDocs();
+});
+$("resetBtn").onclick = async () => {
+  if (!confirm("Delete all uploads and notifications and reload the demo data?")) return;
+  $("resetBtn").disabled = true;
+  try { await api("/api/admin/reset", {}); await api("/api/logout", {}); showLogin(); } catch (e) { alert(e.message); }
+  $("resetBtn").disabled = false;
+};
+
+boot();
+</script>
+</body>
+</html>

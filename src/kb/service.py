@@ -5,7 +5,7 @@ authenticating that user; everything below enforces what they may do.
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +14,7 @@ import psycopg
 from kb import rbac
 from kb.alerts import Notification, SimilarDocument, detect_and_notify, list_notifications, mark_read
 from kb.config import Settings
+from kb.context import SIGNALS
 from kb.db import refresh_index
 from kb.embeddings import Embedder, FastEmbedEmbedder, to_pgvector
 from kb.ingest import Document, chunk_text, find_document_id, load_directory, load_file, update_document_embeddings, write_document
@@ -42,10 +43,21 @@ class KnowledgeBase:
         top_k: int = 5,
         mode: SearchMode | None = None,
         filters: SearchFilters | None = None,
+        context_ranking: bool | None = None,
+        signals: Collection[str] = SIGNALS,
     ) -> list[SearchHit]:
-        return self.retriever.search(user_id, query, top_k, mode, filters)
+        return self.retriever.search(
+            user_id, query, top_k, mode, filters, context_ranking=context_ranking, signals=signals
+        )
 
-    def upload(self, user_id: int, doc: Document, group_names: Sequence[str] = (), refresh: bool = True) -> UploadResult:
+    def upload(
+        self,
+        user_id: int,
+        doc: Document,
+        group_names: Sequence[str] = (),
+        refresh: bool = True,
+        detect_duplicates: bool = True,
+    ) -> UploadResult:
         """Store a document shared with group_names, then check it for near-duplicates.
 
         Raises rbac.PermissionDenied if the user may not share with those groups
@@ -67,7 +79,8 @@ class KnowledgeBase:
             doc_id = write_document(self.conn, doc, chunks, user_id, group_ids, embeddings)
         if refresh:
             refresh_index(self.conn)
-        return UploadResult(doc_id, detect_and_notify(self.conn, doc_id, self.settings))
+        similar = detect_and_notify(self.conn, doc_id, self.settings) if detect_duplicates else []
+        return UploadResult(doc_id, similar)
 
     def upload_directory(self, user_id: int, root: Path, group_names: Sequence[str] = ()) -> list[UploadResult]:
         results = [self.upload(user_id, doc, group_names, refresh=False) for doc in load_directory(root)]

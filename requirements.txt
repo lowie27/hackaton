@@ -11,5 +11,9 @@ python-dotenv>=1.0
 # embeddings; the model (~200 MB) downloads on first use.
 fastembed>=0.4
 
+# Web UI (python -m uvicorn kb.web.app:app)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
 # Tests
 pytest>=8

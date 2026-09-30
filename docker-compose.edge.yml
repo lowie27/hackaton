@@ -1,0 +1,9 @@
+# Hosting behind a reverse proxy (Caddy) that lives on the external "edge" network:
+#   docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d
+services:
+  web:
+    networks: [default, edge]
+
+networks:
+  edge:
+    external: true
