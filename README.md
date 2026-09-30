@@ -7,6 +7,64 @@ Tectonic Hackathon 2026, SD Worx case. The knowledge layer behind a search UI:
 - **Context-aware ranking that explains itself.** Documents carry country, site, department, language, tags, a validity period and a snapshot of the uploader's position; users have a profile. Results that apply to the person asking move up, and every hit lists its reasons ("applies to your country (BE)", "official policy document") and warnings ("expired on 2024-12-31", "no accountable owner", "applies to NL, you work in BE"). Hard filters (country, department, source, language, tags, valid on a date) run in SQL before top-k. *"What is current? Which answer should a person trust?"*
 - **RBAC.** Users see only documents shared with their groups (or uploaded by them). PostgreSQL row-level security enforces this, so hidden documents never reach a result list, not even as a slot in the top-k. Notifications never name a document the recipient cannot read.
 
+## How to run
+
+You need Python 3.11+ and Docker. Run everything from the repo root.
+
+### First time
+
+```bash
+# 1. Database: Postgres 17 with pgvector, only reachable from localhost
+cp .env.example .env            # then change the password in BOTH places in .env
+docker compose up -d
+
+# 2. Python environment and dependencies
+python -m venv .venv
+. .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# 3. Create the schema and load the demo data
+python -m kb init               # tables, search index, row-level security (+ pgvector if enabled)
+python -m kb seed               # demo users, groups and documents from data/sample/
+```
+
+### Every time after that
+
+```bash
+docker compose up -d            # start the database if it is not running
+. .venv/bin/activate
+```
+
+### Try the demo
+
+```bash
+# Bram (payroll consultant, BE) searches: 2025 policy first, Teams copy and expired 2019 FAQ flagged
+python -m kb search "double holiday pay" --as bram@example.com
+
+# Same search, only documents in force today with a given tag
+python -m kb search "holiday pay" --as bram@example.com --valid-on 2026-09-30 --tag "holiday pay"
+
+# Duplicate alerts Anna received
+python -m kb notifications --as anna@example.com
+
+python -m kb --help             # all commands
+```
+
+Demo users: `admin@`, `anna@`, `bram@`, `noor@example.com` (see `data/sample/seed.json`).
+
+### Run the tests
+
+```bash
+pytest                          # 46 tests; needs the database from step 1
+```
+
+### Options
+
+`requirements.txt` includes `fastembed` for vector search. For BM25 only (smaller install, no model download) use `pip install -e .` instead and keep `KB_VECTOR_ENABLED=false`.
+
+Toggle vectors with `KB_VECTOR_ENABLED=true|false` in `.env`. After turning them on for existing data, run `python -m kb init` and then `python -m kb embed`. The default model (`paraphrase-multilingual-MiniLM-L12-v2`, runs locally via fastembed) is multilingual, so Dutch and French queries match English documents.
+
+
 ## Architecture
 
 ```
@@ -39,34 +97,7 @@ search ─► KnowledgeBase.search ─► user_session: SET LOCAL ROLE kb_app + 
 | `src/kb/alerts.py` | duplicate detection, notifications |
 | `src/kb/rbac.py` | user/group admin and write permission checks |
 
-## Run
-
-Requirements: Python 3.11+ and Docker.
-
-```bash
-# 1. Database (Postgres 17 + pgvector, bound to localhost)
-cp .env.example .env            # change the password in both places
-docker compose up -d
-
-# 2. Python dependencies (installs the kb package too)
-python -m venv .venv
-. .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-# 3. Create the schema, load demo data, try it
-python -m kb init               # schema + RLS (+ pgvector if KB_VECTOR_ENABLED=true)
-python -m kb seed               # demo users, groups, documents (data/sample/seed.json)
-python -m kb search "double holiday pay" --as bram@example.com
-python -m kb search "holiday pay" --as bram@example.com --valid-on 2026-09-30 --tag "holiday pay"
-python -m kb notifications --as anna@example.com
-pytest                          # 46 tests, needs the database from step 1
-```
-
-`requirements.txt` includes `fastembed` for vector search. For BM25 only (smaller install, no model download) use `pip install -e .` instead and keep `KB_VECTOR_ENABLED=false`.
-
-Toggle vectors with `KB_VECTOR_ENABLED=true|false` in `.env`. After turning them on for existing data, run `python -m kb init` and then `python -m kb embed`. The default model (`paraphrase-multilingual-MiniLM-L12-v2`, runs locally via fastembed) is multilingual, so Dutch and French queries match English documents.
-
-### Using it from the UI/API layer
+## Using it from the UI/API layer
 
 ```python
 from kb import KnowledgeBase, SearchFilters
